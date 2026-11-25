@@ -1,0 +1,9 @@
+Dolphin- Low Poly by ART & MODELING (Fadly.W)
+https://sketchfab.com/Fadly.W
+https://sketchfab.com/3d-models/dolphin-low-poly-86936ff1e8fc428aab6a0b787ae14c16
+
+Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+The original GLB is included. For the ocean scene, the renderer adjusts orientation,
+scale and lighting, and animates the flukes and breach trajectory.

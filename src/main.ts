@@ -6,6 +6,7 @@ import skyUrl from "./assets/sunset-sky.webp?url";
 import rippleUrl from "./assets/capillary-waves.webp?url";
 import sandUrl from "./assets/seabed.webp?url";
 import { createJellyfish } from "./jellyfish";
+import { createDolphins } from "./dolphins";
 import { createBowSpray } from "./bowSpray";
 import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
@@ -24,6 +25,7 @@ type Stage =
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
+const driftTitle = document.querySelector<HTMLHeadingElement>("#drift-title")!;
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -71,6 +73,14 @@ async function start() {
   paper.mesh.layers.enable(1);
   const splash = createSplash(scene);
   const bowSpray = createBowSpray(scene);
+  let dolphins: Awaited<ReturnType<typeof createDolphins>> | undefined;
+  createDolphins(scene)
+    .then((update) => {
+      dolphins = update;
+    })
+    .catch((error) => {
+      console.warn("The dolphin model could not be loaded.", error);
+    });
   const jellyfish = createJellyfish(scene);
   paper.fold(1);
   const probe = new T.Raycaster(
@@ -116,6 +126,7 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
+    driftTitle.hidden = s !== "drift";
     button.hidden = button.disabled = !(s === "surface" || s === "anchored");
     if (s === "surface" || s === "anchored") {
       const below = s === "anchored";
@@ -136,7 +147,8 @@ async function start() {
       anchored:
         "A chain joins the boat to an iron anchor resting on the sunlit sand.",
       releasing: "The boat pulls against its chain until the bow link snaps.",
-      drift: "The boat rides the open swells, leaving a foamy wake.",
+      drift:
+        "The boat rides the open swells, leaving a foamy wake as dolphins breach in the distance.",
     };
     canvas.setAttribute("aria-label", descriptions[s]);
     if (s !== "intro") narration.textContent = descriptions[s];
@@ -224,6 +236,13 @@ async function start() {
       stage === "intro"
         ? Math.max(0, age - pullDuration) / (stageDuration - pullDuration)
         : 1;
+    // The fold is several metres from the lens. Reserve depth precision for
+    // its thin layers, then restore close water rendering before touchdown.
+    const nearClip = T.MathUtils.lerp(1.8, 0.07, ease(0.6, 0.71, intro));
+    if (camera.near !== nearClip) {
+      camera.near = nearClip;
+      camera.updateProjectionMatrix();
+    }
     const fold = Math.min(1, intro / 0.6);
     const duration = stage === "intro" ? stageDuration - pullDuration : 1,
       fallTime = reduced ? 0.36 : 0.62;
@@ -406,7 +425,7 @@ async function start() {
     paper.fold(fold);
     sound.fold(fold, duration * 0.6);
     boat.updateMatrixWorld(true);
-    tether.update(time, freedFor, impactAge >= 0, tension);
+    tether.update(time, freedFor, impactAge >= 0, tension, reduced);
     splash(impactAge, onWater, reduced);
     if (!landed && impactAge >= 0) {
       landed = true;
@@ -414,6 +433,7 @@ async function start() {
     }
     details.update(dive, time);
     jellyfish(dive, time);
+    if (stage === "drift") dolphins?.(dt, time, camera, swell, reduced);
     bowSpray(dt, time, boat, follow, swell, reduced);
     const un = env.uniforms;
     un.uViewProjection.value.multiplyMatrices(

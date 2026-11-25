@@ -40,3 +40,5 @@ Seamless photorealistic top-down square albedo texture of an actual shallow coas
 The chain’s tension, snap, and recoil use edited excerpts of nettimato’s recording. [Chain on Pixabay](https://pixabay.com/sound-effects/film-special-effects-chain-6073/)
 
 The jellyfish use a transparent 64-frame swim cycle rendered from the original Aurelia bell, oral arms, tentacles, materials, and GPU simulation in Niklas’s portfolio. Four specimens share the animation at different phases and depths in the ocean’s WebGL scene. [Portfolio Space Jellyfish](https://github.com/niklasxi/portfolio-space-jellyfish) · [Aurelia license](public/aurelia-license.txt)
+
+The distant pod uses ART & MODELING’s textured dolphin with a runtime tail stroke and wave-relative breach animation. [Dolphin- Low Poly by Fadly.W](https://sketchfab.com/3d-models/dolphin-low-poly-86936ff1e8fc428aab6a0b787ae14c16) · [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)

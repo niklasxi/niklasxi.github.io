@@ -74,6 +74,7 @@ export function createTether(
   const topLocal = lug.clone().add(v(-0.024, -0.116, 0.082));
   const count = 15;
   const chain = new T.InstancedMesh(linkGeometry(), metal, count);
+  const glintColor = new T.Color();
   chain.name = "Mooring chain";
   chain.layers.enable(2);
   chain.frustumCulled = false;
@@ -141,6 +142,7 @@ export function createTether(
     breakAge: number,
     visible: boolean,
     tension: number,
+    reduced: boolean,
   ) {
     chain.visible = eyelet.visible = visible;
     halves.forEach((h) => (h.visible = visible));
@@ -219,7 +221,18 @@ export function createTether(
       temp.position.copy(centers[i]);
       temp.updateMatrix();
       chain.setMatrixAt(i - 1, temp.matrix);
+      // Two bands of reflected light run down the links as slack runs out.
+      const localStrain = tension - 0.12 * (i / count);
+      const glint = reduced
+        ? 0.22 * tension
+        : 1 -
+          ease(0, 0.12, Math.abs(localStrain - 0.52)) +
+          (1 - ease(0, 0.1, Math.abs(localStrain - 0.88)));
+      const light = breakAge < 0 ? glint : 0;
+      glintColor.setRGB(1 + light * 1.15, 1 + light * 1.38, 1 + light * 1.47);
+      chain.setColorAt(i - 1, glintColor);
     }
+    chain.instanceColor!.needsUpdate = true;
     chain.instanceMatrix.needsUpdate = true;
     const crack = breakAge >= 0 ? ease(0, 0.28, breakAge) : 0;
     const recoil =

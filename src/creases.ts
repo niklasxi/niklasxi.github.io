@@ -59,10 +59,12 @@ export function creaseFaces() {
 }
 const axis = new Vector3();
 const xAxis = new Vector3(1, 0, 0);
-function hingeX(v: Vector3, y: number, angle: number) {
-  v.y -= y;
-  v.applyAxisAngle(xAxis, angle);
-  v.y += y;
+// Each hinge turns around the outside of the stack folded so far.
+const caliper = 0.0015;
+function turn(v: Vector3, axis: Vector3, angle: number, pivotZ: number) {
+  v.z -= pivotZ;
+  v.applyAxisAngle(axis, angle);
+  v.z += pivotZ;
 }
 // A triangular pocket opens around four rigid right triangles. At a quarter
 // turn its two ends meet, leaving the flattened diamond seen in the film.
@@ -72,14 +74,18 @@ function pocket(
   depth: number,
   side: number,
   angle: number,
+  thickness: number,
+  clearance: number,
+  wing: number,
 ) {
   const sn = Math.sin(angle),
     den = Math.sqrt(1 + sn * sn),
-    edge = Math.abs(x);
+    edge = Math.abs(x),
+    cs = Math.cos(angle);
   v.set(
-    x * Math.cos(angle),
-    -edge * den - (depth - edge) / den,
-    (side * (depth - edge) * sn) / den,
+    x * cs + wing * sn * (thickness * side + clearance * sn),
+    -edge * den - (depth - edge) / den + (thickness * side * sn * cs) / den,
+    (side * (depth - edge) * sn + thickness * cs) / den,
   );
 }
 export function foldPoint(out: Vector3, p: Vector2, face: Vector2, t: number) {
@@ -88,39 +94,75 @@ export function foldPoint(out: Vector3, p: Vector2, face: Vector2, t: number) {
   const corner = Math.abs(face.x) > Math.abs(face.y),
     brim = Math.abs(face.y) > a;
   out.set(p.x, p.y, 0);
-  if (back) out.applyAxisAngle(xAxis, Math.PI * ease(0, 0.18, t));
-  if (corner)
-    out.applyAxisAngle(
-      axis.set(s, -1, 0).normalize(),
-      s * Math.PI * ease(s < 0 ? 0.19 : 0.23, s < 0 ? 0.32 : 0.36, t),
+  if (back) turn(out, xAxis, Math.PI * ease(0, 0.18, t), caliper * 0.5);
+  if (corner) {
+    const angle =
+      s * Math.PI * ease(s < 0 ? 0.19 : 0.23, s < 0 ? 0.32 : 0.36, t);
+    turn(out, axis.set(s, -1, 0).normalize(), angle, caliper * 1.5);
+  }
+  if (brim) {
+    const direction = back ? 1 : -1;
+    out.y += a;
+    turn(
+      out,
+      xAxis,
+      direction * Math.PI * ease(0.36, 0.46, t),
+      -direction * caliper * 3,
     );
-  if (brim) hingeX(out, -a, (back ? 1 : -1) * Math.PI * ease(0.36, 0.46, t));
-  if (brim && Math.abs(face.x) + Math.abs(face.y) > 2 * a)
-    out.applyAxisAngle(
-      axis.set(s, -1, 0).normalize(),
-      s * (back ? 1 : -1) * Math.PI * ease(0.46, 0.52, t),
-    );
+    out.y -= a;
+    if (Math.abs(face.x) + Math.abs(face.y) > 2 * a) {
+      turn(
+        out,
+        axis.set(s, -1, 0).normalize(),
+        s * direction * Math.PI * ease(0.46, 0.52, t),
+        direction * caliper * 5,
+      );
+    }
+  }
   if (t <= 0.52) return out;
   const x = out.x,
     d = -out.y,
     side = corner || !back ? 1 : -1;
   if (t < 1) {
     const q = Math.min(0.83, t);
-    pocket(out, x, d, side, Math.PI * 0.5 * ease(0.52, 0.64, q));
+    pocket(
+      out,
+      x,
+      d,
+      side,
+      Math.PI * 0.5 * ease(0.52, 0.64, q),
+      out.z,
+      caliper * 10,
+      s,
+    );
     if (q > 0.64) {
       const mid = -a / Math.SQRT2;
-      if (out.y < mid) {
+      // Classify the entire flap in the flattened diamond's coordinates.
+      const foldedY = brim ? 2 * a - Math.abs(face.y) : Math.abs(face.y);
+      const belowCrease = Math.abs(face.x) + foldedY > a;
+      if (belowCrease) {
         out.y -= mid;
+        out.x -= s * caliper * 17;
         out.applyAxisAngle(
           axis.set(0, 0, 1),
           s * Math.PI * ease(0.64, 0.71, q),
         );
         out.y += mid;
+        out.x += s * caliper * 17;
       }
       if (q > 0.71) {
         const u = out.z,
           v = -out.y;
-        pocket(out, u, v, s, Math.PI * 0.5 * ease(0.71, 0.81, q));
+        pocket(
+          out,
+          u,
+          v,
+          s,
+          Math.PI * 0.5 * ease(0.71, 0.81, q),
+          out.x,
+          caliper * 31,
+          side,
+        );
         const swap = out.z;
         out.z = out.x;
         out.x = swap;
@@ -146,7 +188,7 @@ export function foldPoint(out: Vector3, p: Vector2, face: Vector2, t: number) {
   const hemInset = brim ? 0.045 * Math.min(1, Math.abs(p.y) - a) : 0;
   return out.set(
     x,
-    height + 0.08 - (corner ? 0.16 * hull * breadth : 0),
-    sideSign * halfBeam * interior * (1 - hemInset),
+    height + 0.08 - (corner ? 0.16 * hull * breadth : 0) + out.z * 0.3,
+    sideSign * (halfBeam * interior * (1 - hemInset) + out.z * 0.7),
   );
 }
