@@ -76,6 +76,9 @@ export function createEnvironment(
     uSwell: { value: 0 },
     uWake: { value: 0 },
     uImpact: { value: -1 },
+    uBreaches: {
+      value: Array.from({ length: 6 }, () => new T.Vector4(0, 0, -1, 0)),
+    },
     uRipples: { value: ripples },
     uSand: { value: sand },
     uViewProjection: { value: new T.Matrix4() },
@@ -162,6 +165,7 @@ export function createEnvironment(
     varying vec3 vWorld; varying float vFromCut;
     uniform vec3 uCamera,uBoat;
     uniform float uTime,uDive,uContact,uWake,uImpact;
+    uniform vec4 uBreaches[6];
     uniform mat4 uReflectMatrix,uViewProjection;
     uniform sampler2D uReflection,uRipples,uTransmission;
     ${skyCode}
@@ -227,6 +231,23 @@ export function createEnvironment(
         ring=exp(-pow((radius-.65-uImpact*1.95)/(.13+.06*uImpact),2.))*exp(-uImpact*1.9);
       }
       col=mix(col,vec3(.88,.91,.83),clamp((foam+ring)*smoothstep(.24,.72,turbulence),0.,.88));
+      if(uWake>.99) {
+        float whitewater=0.;
+        for(int i=0; i<6; i++) {
+          vec4 event=uBreaches[i];
+          vec2 delta=p.xz-event.xy+vec2(event.z*.30,0.);
+          if(event.z<0. || dot(delta,delta)>30.) continue;
+          float age=event.z;
+          float r=length(delta*vec2(.81,1.08))/event.w;
+          float grain=fb(p.xz*4.7+vec2(age*.5,-age*.34));
+          float edge=r-(.24+age*1.14)+(grain-.5)*.75;
+          float ring=exp(-edge*edge/(.035+.085*age));
+          float churn=exp(-r*r/(.25+age*.8))*exp(-age*.95);
+          whitewater=max(whitewater,(ring*.68+churn)*smoothstep(.28,.71,grain)
+               *smoothstep(0.,.09,age)*(1.-smoothstep(.45,3.2,age)));
+        }
+        col=mix(col,vec3(.86,.89,.80),min(whitewater,.86));
+      }
       float rim=exp(-vFromCut*24.)*uDive;
       col=mix(col,vec3(.36,.66,.60),rim*.85);
       float air=1.-exp(-dist*.0028);

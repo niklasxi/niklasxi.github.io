@@ -1,9 +1,10 @@
 import * as T from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import dolphinUrl from "./assets/dolphin.glb?url";
+import { createBreachSplashes } from "./breachSplash";
 import { wave } from "./waves";
 
-export async function createDolphins(scene: T.Scene) {
+export async function createDolphins(scene: T.Scene, footprints: T.Vector4[]) {
   const gltf = await new GLTFLoader().loadAsync(dolphinUrl);
   const source = gltf.scene.getObjectByProperty("isMesh", true) as T.Mesh<
     T.BufferGeometry,
@@ -43,6 +44,7 @@ export async function createDolphins(scene: T.Scene) {
     specular: 0x718788,
     shininess: 46,
   });
+  const splashes = createBreachSplashes(scene, footprints);
   const pod = Array.from({ length: 3 }, (_, i) => {
     const mesh = new T.Mesh(geometry, material);
     mesh.name = "Breaching dolphin " + (i + 1);
@@ -50,7 +52,7 @@ export async function createDolphins(scene: T.Scene) {
     mesh.visible = false;
     mesh.scale.setScalar([1.05, 0.89, 0.98][i]);
     scene.add(mesh);
-    return { mesh, originX: 0, originZ: 0, airborne: false };
+    return { mesh, originX: 0, originZ: 0, airborne: false, previousPhase: -1 };
   });
   let elapsed = 0,
     lastPass = -1;
@@ -60,13 +62,17 @@ export async function createDolphins(scene: T.Scene) {
     camera: T.PerspectiveCamera,
     swell: number,
     reduced: boolean,
+    bufferHeight: number,
   ) => {
     elapsed += dt;
     const pass = Math.floor(elapsed / 14);
     const age = elapsed % 14;
     const count = [2, 1, 3][pass % 3];
     if (pass !== lastPass) {
-      for (const dolphin of pod) dolphin.airborne = false;
+      for (const dolphin of pod) {
+        dolphin.airborne = false;
+        dolphin.previousPhase = -1;
+      }
       lastPass = pass;
     }
     for (let i = 0; i < pod.length; i++) {
@@ -107,6 +113,23 @@ export async function createDolphins(scene: T.Scene) {
         z = dolphin.originZ - u * 0.8;
       const lift = reduced ? 3.65 : 4.3;
       const y = wave(x, z, time, swell) - 1.35 + 4 * lift * u * (1 - u);
+      // The tail clears the crest on ascent. On descent the beak meets it
+      // first, just ahead of the body, while the rest is still above water.
+      for (const [contact, phase] of [0.15, 0.86].entries()) {
+        if (dolphin.previousPhase < phase && u >= phase) {
+          const impactX =
+            dolphin.originX - travel * phase + (contact ? -0.65 : 0.65);
+          splashes.strike(
+            i * 2 + contact,
+            impactX,
+            dolphin.originZ - phase * 0.8,
+            (contact ? 1 : 0.63) * dolphin.mesh.scale.x * (reduced ? 0.78 : 1),
+            time,
+            swell,
+          );
+        }
+      }
+      dolphin.previousPhase = u;
       dolphin.mesh.position.set(x, y, z);
       dolphin.mesh.rotation.set(
         0,
@@ -117,5 +140,6 @@ export async function createDolphins(scene: T.Scene) {
       dolphin.mesh.morphTargetInfluences![0] =
         0.5 + 0.48 * Math.sin(u * 6.8 + i);
     }
+    splashes.update(dt, time, swell, bufferHeight);
   };
 }

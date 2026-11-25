@@ -74,7 +74,7 @@ async function start() {
   const splash = createSplash(scene);
   const bowSpray = createBowSpray(scene);
   let dolphins: Awaited<ReturnType<typeof createDolphins>> | undefined;
-  createDolphins(scene)
+  createDolphins(scene, env.uniforms.uBreaches.value)
     .then((update) => {
       dolphins = update;
     })
@@ -433,7 +433,8 @@ async function start() {
     }
     details.update(dive, time);
     jellyfish(dive, time);
-    if (stage === "drift") dolphins?.(dt, time, camera, swell, reduced);
+    if (stage === "drift")
+      dolphins?.(dt, time, camera, swell, reduced, canvas.height);
     bowSpray(dt, time, boat, follow, swell, reduced);
     const un = env.uniforms;
     un.uViewProjection.value.multiplyMatrices(
