@@ -28,6 +28,7 @@ const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
 const driftTitle = document.querySelector<HTMLHeadingElement>("#drift-title")!;
+const driftName = document.querySelector<HTMLHeadingElement>("#drift-name")!;
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -137,6 +138,8 @@ async function start() {
     stageDuration = duration;
     canvas.dataset.stage = s;
     driftTitle.hidden = s !== "drift";
+    driftTitle.style.removeProperty("opacity");
+    driftName.hidden = true;
     button.hidden = button.disabled = !(s === "surface" || s === "anchored");
     if (s === "surface" || s === "anchored") {
       const below = s === "anchored";
@@ -229,6 +232,15 @@ async function start() {
     if (stage === "intro" && age >= stageDuration) setStage("surface");
     if (stage === "descending" && age >= stageDuration) setStage("anchored");
     if (stage === "releasing" && age >= stageDuration) setStage("drift");
+    if (stage === "drift" && !driftTitle.hidden && age >= 10) {
+      const fade = reduced ? 1 : ease(10, 10.65, age);
+      driftTitle.style.opacity = String(1 - fade);
+      if (fade === 1) {
+        driftTitle.hidden = true;
+        driftName.hidden = false;
+        narration.textContent = driftName.textContent!.trim();
+      }
+    }
     const released = stage === "releasing" || stage === "drift";
     if (released) releaseElapsed += dt;
     const freedFor = released ? releaseElapsed - breakDelay : -1;
