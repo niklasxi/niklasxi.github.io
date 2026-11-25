@@ -1,7 +1,9 @@
 import * as T from "three";
+import { createSeaMist } from "./seaMist";
 import { wave } from "./waves";
 
 export function createBowSpray(scene: T.Scene) {
+  const seaMist = createSeaMist(scene);
   const pool = Array.from({ length: 96 }, () => ({
     position: new T.Vector3(),
     velocity: new T.Vector3(),
@@ -46,6 +48,7 @@ export function createBowSpray(scene: T.Scene) {
     const crest = wave(contact.x, contact.z, time, swell);
     // Water rising against the angled bow throws a wider fan on the next crest.
     const encounter = T.MathUtils.clamp((crest - contact.y + 0.1) * 2.8, 0, 1);
+    seaMist(dt, time, boat, follow, swell, encounter, reduced);
     pending += dt * follow * (8 + 80 * encounter) * (reduced ? 0.32 : 1);
     while (pending >= 1) {
       pending--;
