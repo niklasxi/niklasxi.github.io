@@ -1,0 +1,188 @@
+@font-face {
+  font-family: Geist;
+  src: url("/fonts/geist-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root {
+  color-scheme: dark;
+  font-family: Geist, "Helvetica Neue", Arial, sans-serif;
+  background: #070b11;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+main {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+main {
+  position: relative;
+  isolation: isolate;
+  background: #14212a;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.action-area {
+  position: absolute;
+  inset: auto 0 max(6.6dvh, env(safe-area-inset-bottom) + 16px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+button {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  min-width: 153px;
+  min-height: 48px;
+  padding: 12px 23px;
+  border: 1px solid rgb(244 238 220 / 48%);
+  border-radius: 40px;
+  color: #fff8eb;
+  background: rgb(9 29 33 / 56%);
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 2px 16px #00141938,
+    inset 0 0 8px #e9cf9b08;
+  font:
+    400 0.94rem/1.3 "Helvetica Neue",
+    Arial,
+    sans-serif;
+  letter-spacing: 0.035em;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.25s,
+    border-color 0.25s,
+    opacity 0.4s;
+}
+button:not([hidden]) {
+  animation: rise 0.65s ease-out backwards;
+}
+button:hover {
+  border-color: #fff4de;
+  background: rgb(14 38 40 / 80%);
+}
+button:focus-visible {
+  outline: 2px solid #fff4dc;
+  outline-offset: 5px;
+}
+button svg {
+  width: 21px;
+  height: 19px;
+}
+[hidden] {
+  display: none !important;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+noscript,
+.error {
+  position: absolute;
+  top: 50%;
+  width: 100%;
+  text-align: center;
+  color: ivory;
+  background: #08141cc9;
+  padding: 1rem;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+#portfolio {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  overflow: auto;
+  background: white;
+  color: #151515;
+  color-scheme: light;
+  font:
+    16px/1.35 "Times New Roman",
+    Times,
+    serif;
+}
+.home-page {
+  min-height: calc(100dvh + 56px);
+  display: flex;
+  flex-direction: column;
+  background: white;
+}
+.home-page header {
+  padding: 17px 24px 13px;
+  background: #eee;
+  border-bottom: 1px solid #aaa;
+}
+.home-page h1 {
+  font-size: 32px;
+  margin: 0 0 4px;
+}
+.home-page p {
+  margin: 0 0 10px;
+}
+.home-page header p {
+  margin: 0;
+}
+.home-page nav {
+  padding: 8px 24px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ccc;
+}
+.home-page a {
+  color: #0000bb;
+  text-decoration: underline;
+}
+.home-page a:focus-visible {
+  outline: 2px solid #222;
+  outline-offset: 2px;
+}
+.home-content {
+  padding: 4px 24px 24px;
+  max-width: 720px;
+}
+.home-page h2 {
+  margin: 18px 0 8px;
+  font-size: 24px;
+}
+.home-page h3 {
+  margin: 12px 0 3px;
+  font-size: 17px;
+}
+.home-page footer {
+  margin-top: auto;
+  padding: 12px 24px;
+  border-top: 1px solid #ccc;
+  background: #eee;
+  color: #555;
+}
