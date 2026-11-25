@@ -27,8 +27,8 @@ type Stage =
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
-const driftTitle = document.querySelector<HTMLHeadingElement>("#drift-title")!;
-const driftName = document.querySelector<HTMLHeadingElement>("#drift-name")!;
+const driftHeadings =
+  document.querySelectorAll<HTMLHeadingElement>(".drift-heading");
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -132,14 +132,14 @@ async function start() {
     atBreakX = 0,
     atBreakZ = 0;
   let stageDuration = 0;
+  let headingIndex = 0,
+    headingSince = 0;
   function setStage(s: Stage, duration = 0) {
     stage = s;
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
-    driftTitle.hidden = s !== "drift";
-    driftTitle.style.removeProperty("opacity");
-    driftName.hidden = true;
+    if (s === "drift") driftHeadings[0].hidden = false;
     button.hidden = button.disabled = !(s === "surface" || s === "anchored");
     if (s === "surface" || s === "anchored") {
       const below = s === "anchored";
@@ -232,13 +232,20 @@ async function start() {
     if (stage === "intro" && age >= stageDuration) setStage("surface");
     if (stage === "descending" && age >= stageDuration) setStage("anchored");
     if (stage === "releasing" && age >= stageDuration) setStage("drift");
-    if (stage === "drift" && !driftTitle.hidden && age >= 10) {
-      const fade = reduced ? 1 : ease(10, 10.65, age);
-      driftTitle.style.opacity = String(1 - fade);
+    if (
+      stage === "drift" &&
+      headingIndex < driftHeadings.length - 1 &&
+      age - headingSince >= 10
+    ) {
+      const current = driftHeadings[headingIndex];
+      const fade = reduced ? 1 : ease(10, 10.65, age - headingSince);
+      current.style.opacity = String(1 - fade);
       if (fade === 1) {
-        driftTitle.hidden = true;
-        driftName.hidden = false;
-        narration.textContent = driftName.textContent!.trim();
+        current.hidden = true;
+        const next = driftHeadings[++headingIndex];
+        next.hidden = false;
+        headingSince = age;
+        narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
       }
     }
     const released = stage === "releasing" || stage === "drift";
