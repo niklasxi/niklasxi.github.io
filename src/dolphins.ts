@@ -1,11 +1,16 @@
 import * as T from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import dolphinUrl from "./assets/dolphin.glb?url";
+import type { createSeaMist } from "./seaMist";
 import { createDolphinBreath } from "./dolphinBreath";
 import { createBreachSplashes } from "./breachSplash";
 import { wave } from "./waves";
 
-export async function createDolphins(scene: T.Scene, footprints: T.Vector4[]) {
+export async function createDolphins(
+  scene: T.Scene,
+  footprints: T.Vector4[],
+  mist: ReturnType<typeof createSeaMist>,
+) {
   const gltf = await new GLTFLoader().loadAsync(dolphinUrl);
   const source = gltf.scene.getObjectByProperty("isMesh", true) as T.Mesh<
     T.BufferGeometry,
@@ -127,11 +132,15 @@ export async function createDolphins(scene: T.Scene, footprints: T.Vector4[]) {
         if (dolphin.previousPhase < phase && u >= phase) {
           const impactX =
             dolphin.originX - travel * phase + (contact ? -0.65 : 0.65);
+          const impactZ = dolphin.originZ - phase * 0.8;
+          const strength = dolphin.mesh.scale.x * (reduced ? 0.78 : 1);
+          if (contact === 1)
+            mist.impact(impactX, impactZ, 0.42, 0.25, 0, strength);
           splashes.strike(
             i * 2 + contact,
             impactX,
-            dolphin.originZ - phase * 0.8,
-            (contact ? 1 : 0.63) * dolphin.mesh.scale.x * (reduced ? 0.78 : 1),
+            impactZ,
+            (contact ? 1 : 0.63) * strength,
             time,
             swell,
           );

@@ -8,6 +8,7 @@ import sandUrl from "./assets/seabed.webp?url";
 import { createJellyfish } from "./jellyfish";
 import { createDolphins } from "./dolphins";
 import { bakeHullMask } from "./hullMask";
+import { createSeaMist } from "./seaMist";
 import { createBowSpray } from "./bowSpray";
 import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
@@ -73,9 +74,10 @@ async function start() {
   scene.add(boat);
   paper.mesh.layers.enable(1);
   const splash = createSplash(scene);
+  const seaMist = createSeaMist(scene);
   const bowSpray = createBowSpray(scene);
   let dolphins: Awaited<ReturnType<typeof createDolphins>> | undefined;
-  createDolphins(scene, env.uniforms.uBreaches.value)
+  createDolphins(scene, env.uniforms.uBreaches.value, seaMist)
     .then((update) => {
       dolphins = update;
     })
@@ -440,12 +442,22 @@ async function start() {
     splash(impactAge, onWater, reduced, canvas.height);
     if (!landed && impactAge >= 0) {
       landed = true;
+      seaMist.impact(
+        onWater.x,
+        onWater.z,
+        2.18,
+        1.02,
+        yaw,
+        reduced ? 0.68 : 1.15,
+      );
       sound.land();
     }
     details.update(dive, time);
     jellyfish(dive, time);
-    if (stage === "drift")
+    seaMist.update(dt, time, boat, swell, reduced, stage === "drift");
+    if (stage === "drift") {
       dolphins?.(dt, time, camera, swell, reduced, canvas.height);
+    }
     bowSpray(dt, time, boat, follow, swell, reduced);
     const un = env.uniforms;
     un.uWorldToHull.value.copy(boat.matrixWorld).invert();
