@@ -32,7 +32,7 @@ function sheetIndices(flat: T.Vector2[]) {
   return indices;
 }
 
-export function createPaper(texture: T.Texture, grain: T.Texture) {
+export function createPaper(grain: T.Texture) {
   const flat: T.Vector2[] = [],
     centers: T.Vector2[] = [],
     uv: number[] = [],
@@ -68,7 +68,7 @@ export function createPaper(texture: T.Texture, grain: T.Texture) {
   const mat = new T.ShaderMaterial({
     side: T.DoubleSide,
     uniforms: {
-      uPrint: { value: texture },
+      uPrint: { value: null as T.Texture | null },
       uGrain: { value: grain },
       uFold: { value: 0 },
     },

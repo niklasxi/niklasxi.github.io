@@ -75,6 +75,8 @@ export function createTether(
   const count = 15;
   const chain = new T.InstancedMesh(linkGeometry(), metal, count);
   const glintColor = new T.Color();
+  // Allocate the per-link color attribute before its shader is compiled.
+  chain.setColorAt(0, glintColor);
   chain.name = "Mooring chain";
   chain.layers.enable(2);
   chain.frustumCulled = false;

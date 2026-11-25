@@ -5,6 +5,7 @@ import grainUrl from "./assets/paper-grain.webp?url";
 import skyUrl from "./assets/sunset-sky.webp?url";
 import rippleUrl from "./assets/capillary-waves.webp?url";
 import sandUrl from "./assets/seabed.webp?url";
+import swimUrl from "./assets/aurelia-swim.webp?url";
 import { createJellyfish } from "./jellyfish";
 import { createDolphins } from "./dolphins";
 import { bakeHullMask } from "./hullMask";
@@ -42,6 +43,7 @@ async function start() {
   });
   renderer.setClearColor(0x000000, 0);
   const loader = new T.TextureLoader();
+  const atlasReady = loader.loadAsync(swimUrl).catch(() => null);
   const [sky, ripples, sand, grain] = await Promise.all(
     [skyUrl, rippleUrl, sandUrl, grainUrl].map((url) => loader.loadAsync(url)),
   );
@@ -49,9 +51,6 @@ async function start() {
     texture.wrapS = texture.wrapT = T.RepeatWrapping;
     texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   }
-  const print = new T.CanvasTexture(await clicked);
-  print.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-
   const scene = new T.Scene(),
     camera = new T.PerspectiveCamera(39, 1, 0.07, 2600);
   const mirror = new T.PerspectiveCamera();
@@ -69,7 +68,7 @@ async function start() {
     transmission,
   );
   scene.add(env.background, env.water);
-  const paper = createPaper(print, grain),
+  const paper = createPaper(grain),
     boat = new T.Group();
   boat.add(paper.mesh);
   scene.add(boat);
@@ -78,14 +77,8 @@ async function start() {
   const seaMist = createSeaMist(scene);
   const bowSpray = createBowSpray(scene);
   let dolphins: Awaited<ReturnType<typeof createDolphins>> | undefined;
-  createDolphins(scene, env.uniforms.uBreaches.value, seaMist)
-    .then((update) => {
-      dolphins = update;
-    })
-    .catch((error) => {
-      console.warn("The dolphin model could not be loaded.", error);
-    });
-  const jellyfish = createJellyfish(scene);
+  const atlas = await atlasReady;
+  const jellyfish = atlas && createJellyfish(scene, atlas);
   paper.fold(1);
   const mask = bakeHullMask(renderer, paper.mesh.geometry);
   env.uniforms.uHullMask.value = mask.texture;
@@ -215,6 +208,48 @@ async function start() {
   }
   new ResizeObserver(resize).observe(canvas);
   resize();
+  // Prepare the display, reflection and underwater variants while the HTML
+  // portfolio covers the canvas. A one-pixel draw also uploads geometry and
+  // textures that shader compilation alone would leave until first use.
+  await renderer.compileAsync(scene, camera);
+  const hidden: T.Object3D[] = [],
+    culled: T.Object3D[] = [];
+  scene.traverse((object) => {
+    if (!object.visible) {
+      hidden.push(object);
+      object.visible = true;
+    }
+    if (object.frustumCulled) {
+      culled.push(object);
+      object.frustumCulled = false;
+    }
+  });
+  function primePass(layer: number, target: T.WebGLRenderTarget | null) {
+    camera.layers.set(layer);
+    renderer.setRenderTarget(target);
+    renderer.setScissor(0, 0, 1, 1);
+    renderer.setScissorTest(true);
+    renderer.render(scene, camera);
+  }
+  const scissor = renderer.getScissor(new T.Vector4());
+  primePass(1, reflection);
+  primePass(2, transmission);
+  primePass(0, null);
+  renderer.setScissorTest(false);
+  renderer.setScissor(scissor);
+  for (const object of hidden) object.visible = false;
+  for (const object of culled) object.frustumCulled = true;
+
+  const print = new T.CanvasTexture(await clicked);
+  print.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  paper.mesh.material.uniforms.uPrint.value = print;
+  createDolphins(scene, env.uniforms.uBreaches.value, seaMist)
+    .then((update) => {
+      dolphins = update;
+    })
+    .catch((error) => {
+      console.warn("The dolphin model could not be loaded.", error);
+    });
   const pullDuration = reduced ? 0.42 : 0.88;
   let landed = false,
     sinceImpact = 0;
@@ -472,7 +507,7 @@ async function start() {
       sound.land();
     }
     details.update(dive, time);
-    jellyfish(dive, time);
+    jellyfish?.(dive, time);
     seaMist.update(dt, time, boat, swell, reduced, stage === "drift");
     if (stage === "drift") {
       dolphins?.(dt, time, camera, swell, reduced, canvas.height);

@@ -1,10 +1,8 @@
 import * as T from "three";
-import swimUrl from "./assets/aurelia-swim.webp?url";
 
 // 64 transparent frames rendered from the portfolio's Aurelia GPU simulation.
 // World-space placement lets the water surface, seabed and chain occlude them.
-export function createJellyfish(scene: T.Scene) {
-  const atlas = new T.TextureLoader().load(swimUrl);
+export function createJellyfish(scene: T.Scene, atlas: T.Texture) {
   atlas.generateMipmaps = false;
   atlas.minFilter = T.LinearFilter;
   const school = new T.Group();
