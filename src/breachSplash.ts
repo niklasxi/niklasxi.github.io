@@ -1,25 +1,19 @@
 import * as T from "three";
+import { createImpactSpray, spraySeeds } from "./impactSpray";
 import { wave, waveGLSL } from "./waves";
 
 // Each dolphin has an exit and an entry slot. Fixed world-space footprints
 // let the pod move on while the foam spreads across the passing swell.
 export function createBreachSplashes(scene: T.Scene, footprints: T.Vector4[]) {
   const sheet = new T.PlaneGeometry(1, 1, 96, 5);
-  const droplets = new T.BufferGeometry();
-  const seeds = [];
-  for (let i = 0; i < 80; i++) {
-    seeds.push(i * 2.399963, (i * 0.618034) % 1, (i * 0.754878) % 1);
-  }
-  droplets.setAttribute("position", new T.Float32BufferAttribute(seeds, 3));
-
+  const droplets = spraySeeds(150);
   const slots = footprints.map((footprint, i) => {
     const uniforms = {
       contact: { value: footprint },
       uTime: { value: 0 },
       uSwell: { value: 0 },
-      bed: { value: 0 },
+
       phase: { value: i * 1.78 },
-      pixels: { value: 1 },
     };
     const crown = new T.Mesh(
       sheet,
@@ -51,30 +45,8 @@ export function createBreachSplashes(scene: T.Scene, footprints: T.Vector4[]) {
         }`,
       }),
     );
-    const spray = new T.Points(
-      droplets,
-      new T.ShaderMaterial({
-        uniforms,
-        depthWrite: false,
-        transparent: true,
-        vertexShader: `uniform vec4 contact; uniform float bed,phase,pixels; varying float fade;
-        void main(){
-          float a=position.x+phase, seed=position.y, age=max(0.,contact.z-position.z*.13);
-          float speed=1.1+seed*2.8, rise=(3.2+position.z*3.1)*contact.w;
-          vec2 offset=vec2(cos(a)*1.25,sin(a))*(.21+speed*age)*contact.w;
-          offset.x-=age*.65;
-          float h=rise*age-4.9*age*age;
-          vec4 eye=viewMatrix*vec4(contact.x+offset.x,bed+h,contact.y+offset.y,1.);
-          gl_Position=projectionMatrix*eye;
-          gl_PointSize=clamp(pixels*(.034+.049*seed)*contact.w/-eye.z,1.,5.);
-          fade=smoothstep(0.,.09,h)*(1.-smoothstep(.75,1.3,age));
-        }`,
-        fragmentShader: `varying float fade; void main(){
-        float r=length(gl_PointCoord-.5)*2.;
-        gl_FragColor=vec4(.92,.9,.8,fade*.9*(1.-smoothstep(.32,1.,r)));
-      }`,
-      }),
-    );
+    const spray = createImpactSpray(droplets, false);
+    spray.material.uniforms.phase.value = i * 1.78;
     crown.frustumCulled = spray.frustumCulled = false;
     crown.visible = spray.visible = false;
     crown.name = "Dolphin splash crown " + i;
@@ -92,7 +64,9 @@ export function createBreachSplashes(scene: T.Scene, footprints: T.Vector4[]) {
       swell: number,
     ) {
       footprints[index].set(x, z, 0, strength);
-      slots[index].uniforms.bed.value = wave(x, z, time, swell);
+      const spray = slots[index].spray.material.uniforms;
+      spray.origin.value.set(x, wave(x, z, time, swell), z);
+      spray.strength.value = strength;
     },
     update(dt: number, time: number, swell: number, height: number) {
       for (let i = 0; i < slots.length; i++) {
@@ -101,10 +75,11 @@ export function createBreachSplashes(scene: T.Scene, footprints: T.Vector4[]) {
         if (point.z < 0) continue;
         point.z += dt;
         slot.crown.visible = point.z < 0.98;
-        slot.spray.visible = point.z < 1.3;
+        slot.spray.visible = point.z < 1.55;
         slot.uniforms.uTime.value = time;
         slot.uniforms.uSwell.value = swell;
-        slot.uniforms.pixels.value = height * 1.4;
+        slot.spray.material.uniforms.age.value = point.z;
+        slot.spray.material.uniforms.pixels.value = height * 1.4;
         if (point.z > 3.2) point.z = -1;
       }
     },

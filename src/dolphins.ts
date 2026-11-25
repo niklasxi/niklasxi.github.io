@@ -1,6 +1,7 @@
 import * as T from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import dolphinUrl from "./assets/dolphin.glb?url";
+import { createDolphinBreath } from "./dolphinBreath";
 import { createBreachSplashes } from "./breachSplash";
 import { wave } from "./waves";
 
@@ -44,6 +45,13 @@ export async function createDolphins(scene: T.Scene, footprints: T.Vector4[]) {
     specular: 0x718788,
     shininess: 46,
   });
+  // Intersect the crown behind the beak to place the exhale on the skin.
+  const ray = new T.Raycaster(
+    new T.Vector3(0.6, 2, 0),
+    new T.Vector3(0, -1, 0),
+  );
+  const blowhole = ray.intersectObject(new T.Mesh(geometry, material))[0].point;
+  const breath = createDolphinBreath(scene);
   const splashes = createBreachSplashes(scene, footprints);
   const pod = Array.from({ length: 3 }, (_, i) => {
     const mesh = new T.Mesh(geometry, material);
@@ -129,7 +137,6 @@ export async function createDolphins(scene: T.Scene, footprints: T.Vector4[]) {
           );
         }
       }
-      dolphin.previousPhase = u;
       dolphin.mesh.position.set(x, y, z);
       dolphin.mesh.rotation.set(
         0,
@@ -137,9 +144,20 @@ export async function createDolphins(scene: T.Scene, footprints: T.Vector4[]) {
         Math.atan2(4 * lift * (1 - 2 * u), travel),
         "YZX",
       );
+      if ((pass + i) % 3 === 0 && dolphin.previousPhase < 0.32 && u >= 0.32) {
+        breath.exhale(
+          dolphin.mesh,
+          blowhole,
+          travel / duration,
+          (4 * lift * (1 - 2 * u)) / duration,
+          reduced,
+        );
+      }
+      dolphin.previousPhase = u;
       dolphin.mesh.morphTargetInfluences![0] =
         0.5 + 0.48 * Math.sin(u * 6.8 + i);
     }
     splashes.update(dt, time, swell, bufferHeight);
+    breath.update(dt, bufferHeight);
   };
 }

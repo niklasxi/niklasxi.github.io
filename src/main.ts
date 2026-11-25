@@ -203,7 +203,8 @@ async function start() {
   new ResizeObserver(resize).observe(canvas);
   resize();
   const pullDuration = reduced ? 0.42 : 0.88;
-  let landed = false;
+  let landed = false,
+    sinceImpact = 0;
   setStage("intro", (reduced ? 3 : 4.5) + pullDuration);
   function frame(stamp: number) {
     requestAnimationFrame(frame);
@@ -246,8 +247,10 @@ async function start() {
     const fold = Math.min(1, intro / 0.6);
     const duration = stage === "intro" ? stageDuration - pullDuration : 1,
       fallTime = reduced ? 0.36 : 0.62;
-    const impactAge =
-      stage === "intro" ? (intro - 0.637) * duration - fallTime : 3;
+    const impactAge = landed
+      ? sinceImpact + dt
+      : (intro - 0.637) * duration - fallTime;
+    sinceImpact = impactAge;
     const fall = Math.min(1, Math.max(0, 1 + impactAge / fallTime));
     const land = fall * fall;
     const tension = released ? ease(0, breakDelay * 0.81, releaseElapsed) : 0;
@@ -426,7 +429,7 @@ async function start() {
     sound.fold(fold, duration * 0.6);
     boat.updateMatrixWorld(true);
     tether.update(time, freedFor, impactAge >= 0, tension, reduced);
-    splash(impactAge, onWater, reduced);
+    splash(impactAge, onWater, reduced, canvas.height);
     if (!landed && impactAge >= 0) {
       landed = true;
       sound.land();

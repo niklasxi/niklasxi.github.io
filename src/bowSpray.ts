@@ -12,11 +12,11 @@ export function createBowSpray(scene: T.Scene) {
   const mesh = new T.InstancedMesh(
     new T.SphereGeometry(1, 6, 4),
     new T.MeshPhongMaterial({
-      color: 0xa4c3bc,
+      color: 0xc1d0c8,
       specular: 0xffe9bd,
       shininess: 105,
       transparent: true,
-      opacity: 0.67,
+      opacity: 0.76,
       depthWrite: false,
     }),
     pool.length,
@@ -28,7 +28,9 @@ export function createBowSpray(scene: T.Scene) {
   let next = 0,
     pending = 0;
   const transform = new T.Object3D(),
-    contact = new T.Vector3();
+    contact = new T.Vector3(),
+    up = new T.Vector3(0, 1, 0),
+    direction = new T.Vector3();
   return (
     dt: number,
     time: number,
@@ -84,7 +86,16 @@ export function createBowSpray(scene: T.Scene) {
         drop.size *
         (1 - T.MathUtils.smoothstep(drop.age / drop.lifetime, 0.55, 1));
       transform.position.copy(drop.position);
-      transform.scale.set(radius, 1.38 * radius, radius);
+      const speed = drop.velocity.length();
+      transform.quaternion.setFromUnitVectors(
+        up,
+        direction.copy(drop.velocity).normalize(),
+      );
+      transform.scale.set(
+        radius,
+        (1 + Math.min(speed * 0.34, 1.45)) * radius,
+        radius,
+      );
       transform.updateMatrix();
       mesh.setMatrixAt(count++, transform.matrix);
     }
