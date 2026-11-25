@@ -7,6 +7,7 @@ import rippleUrl from "./assets/capillary-waves.webp?url";
 import sandUrl from "./assets/seabed.webp?url";
 import { createJellyfish } from "./jellyfish";
 import { createDolphins } from "./dolphins";
+import { bakeHullMask } from "./hullMask";
 import { createBowSpray } from "./bowSpray";
 import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
@@ -83,6 +84,10 @@ async function start() {
     });
   const jellyfish = createJellyfish(scene);
   paper.fold(1);
+  const mask = bakeHullMask(renderer, paper.mesh.geometry);
+  env.uniforms.uHullMask.value = mask.texture;
+  env.uniforms.uHullBounds.value.copy(mask.bounds);
+  env.uniforms.uHullLevels.value.copy(mask.levels);
   const probe = new T.Raycaster(
     new T.Vector3(-2.12, 0.58, 4),
     new T.Vector3(0, 0, -1),
@@ -107,6 +112,9 @@ async function start() {
   const onWater = new T.Vector3(),
     boatRotation = new T.Quaternion(),
     sheetRotation = new T.Quaternion();
+  const up = new T.Vector3(0, 1, 0),
+    surfaceNormal = new T.Vector3(),
+    heading = new T.Quaternion();
   const rot = new T.Euler();
   let stage: Stage = "intro",
     age = 0,
@@ -357,23 +365,23 @@ async function start() {
     camera.updateMatrixWorld();
     const yaw = 0.295 + 0.027 * Math.sin(time * 0.47) - follow * 0.71;
     const h0 = centerH;
-    const roll = Math.atan2(
-      wave(bx + 1.25, bz, time, swell) - wave(bx - 1.25, bz, time, swell),
-      2.5,
-    );
-    const pitchHull = -Math.atan2(
-      wave(bx, bz + 0.55, time, swell) - wave(bx, bz - 0.55, time, swell),
-      1.1,
-    );
+    // Align the hull's up axis with the swell before applying its heading.
+    // Composing world-space slope angles as local pitch/roll tilts a yawed
+    // hull across the face of a steep wave.
+    surfaceNormal
+      .set(
+        (wave(bx - 1.25, bz, time, swell) - wave(bx + 1.25, bz, time, swell)) /
+          2.5,
+        1,
+        (wave(bx, bz - 0.55, time, swell) - wave(bx, bz + 0.55, time, swell)) /
+          1.1,
+      )
+      .normalize();
     onWater.set(bx, h0 - 0.16, bz);
-    boatRotation.setFromEuler(
-      rot.set(
-        pitchHull,
-        yaw,
-        roll - 0.09 * tension * (1 - ease(0, 0.65, freedFor)),
-        "ZXY",
-      ),
+    heading.setFromEuler(
+      rot.set(0, yaw, -0.09 * tension * (1 - ease(0, 0.65, freedFor)), "YXZ"),
     );
+    boatRotation.setFromUnitVectors(up, surfaceNormal).multiply(heading);
     // Start in the folding shot. The paper has its final physical scale from frame one.
     const sheetZ = cz - Math.max(9.2, 7.0 / (2 * tan * aspect));
     sheetPos.set(
@@ -440,6 +448,7 @@ async function start() {
       dolphins?.(dt, time, camera, swell, reduced, canvas.height);
     bowSpray(dt, time, boat, follow, swell, reduced);
     const un = env.uniforms;
+    un.uWorldToHull.value.copy(boat.matrixWorld).invert();
     un.uViewProjection.value.multiplyMatrices(
       camera.projectionMatrix,
       camera.matrixWorldInverse,

@@ -73,6 +73,10 @@ export function createEnvironment(
     uAspect: { value: 1 },
     uTan: { value: 0.34 },
     uContact: { value: 0 },
+    uWorldToHull: { value: new T.Matrix4() },
+    uHullMask: { value: null as T.Texture | null },
+    uHullBounds: { value: new T.Vector4() },
+    uHullLevels: { value: new T.Vector2() },
     uSwell: { value: 0 },
     uWake: { value: 0 },
     uImpact: { value: -1 },
@@ -165,7 +169,10 @@ export function createEnvironment(
     varying vec3 vWorld; varying float vFromCut;
     uniform vec3 uCamera,uBoat;
     uniform float uTime,uDive,uContact,uWake,uImpact;
-    uniform vec4 uBreaches[6];
+    uniform vec4 uBreaches[6],uHullBounds;
+    uniform vec2 uHullLevels;
+    uniform mat4 uWorldToHull;
+    uniform sampler2D uHullMask;
     uniform mat4 uReflectMatrix,uViewProjection;
     uniform sampler2D uReflection,uRipples,uTransmission;
     ${skyCode}
@@ -184,6 +191,14 @@ export function createEnvironment(
     }
     void main(){
       vec3 p=vWorld;
+      if(uContact>0. && all(lessThan(abs(p.xz-uBoat.xz),vec2(3.5)))) {
+        vec3 hull=(uWorldToHull*vec4(p,1.)).xyz;
+        vec2 at=(hull.xz-uHullBounds.xy)*uHullBounds.zw;
+        if(all(greaterThanEqual(at,vec2(0.))) && all(lessThanEqual(at,vec2(1.)))) {
+          vec4 floorSample=texture2D(uHullMask,at);
+          if(floorSample.a>.995 && hull.y>=uHullLevels.x+floorSample.r*uHullLevels.y-.003) discard;
+        }
+      }
       vec3 V=normalize(uCamera-p);
       float dist=length(uCamera-p);
       vec2 slopes=slopeAt(p.xz,uTime)+fineSlope(p.xz,dist);
