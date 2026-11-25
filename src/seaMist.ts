@@ -2,7 +2,7 @@ import * as T from "three";
 import { wave, waveGLSL } from "./waves";
 
 export function createSeaMist(scene: T.Scene) {
-  const capacity = 80;
+  const capacity = 112;
   const plane = new T.PlaneGeometry();
   const geometry = new T.InstancedBufferGeometry();
   geometry.index = plane.index;
@@ -72,7 +72,8 @@ export function createSeaMist(scene: T.Scene) {
   scene.add(mist);
 
   let accumulated = 0,
-    next = 0;
+    next = 0,
+    crossingSpray = 0;
   const uniforms = material.uniforms;
   let lastEmission = -10;
   function emit(
@@ -136,6 +137,52 @@ export function createSeaMist(scene: T.Scene) {
       uniforms.density.value = reduced ? 0.65 : 1;
       mist.visible = uniforms.elapsed.value - lastEmission < 1.2;
       if (!openWater) return;
+      // The bow parts each swell into two shoulders. Pick the higher piece
+      // of water along each shoulder and let its spray blow out across the sea.
+      const axis = boat.matrixWorld.elements;
+      const length = Math.hypot(axis[0], axis[2]);
+      const hx = axis[0] / length,
+        hz = axis[2] / length;
+      const steepness = Math.abs(
+        wave(boat.position.x - 2 * hx, boat.position.z - 2 * hz, time, swell) -
+          wave(boat.position.x + 2 * hx, boat.position.z + 2 * hz, time, swell),
+      );
+      const breaking = T.MathUtils.smoothstep(
+        steepness,
+        0.15 * swell,
+        1.45 * swell,
+      );
+      crossingSpray += dt * (8 + 18 * breaking) * (reduced ? 0.52 : 1);
+      while (crossingSpray >= 1) {
+        crossingSpray--;
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const offset = side * (1.55 + 0.74 * Math.random());
+        let bestHeight = -Infinity,
+          x = 0,
+          z = 0;
+        for (let i = 0; i < 3; i++) {
+          const along = -2.85 + (i + Math.random()) * 0.91;
+          const px = boat.position.x + hx * along - hz * offset;
+          const pz = boat.position.z + hz * along + hx * offset;
+          const h = wave(px, pz, time, swell);
+          if (h > bestHeight) {
+            bestHeight = h;
+            x = px;
+            z = pz;
+          }
+        }
+        const seed = Math.random(),
+          outward = side * (0.7 + 0.63 * seed);
+        emit(
+          x,
+          z,
+          hx * 0.7 - hz * outward,
+          0.21 + 0.2 * breaking + 0.14 * seed,
+          hz * 0.7 + hx * outward,
+          0.68,
+          seed,
+        );
+      }
       // Sample open water beyond the hull. Only emit on convex, elevated
       // sections of swell, with a single wind direction across the whole sea.
       accumulated += dt * (reduced ? 24 : 48);
