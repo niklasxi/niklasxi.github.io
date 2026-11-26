@@ -1,4 +1,5 @@
 import oceanUrl from "./assets/ocean-waves.mp3?url";
+import thunderUrl from "./assets/dry-thunder.mp3?url";
 import splashUrl from "./assets/water-splash.mp3?url";
 import foldUrl from "./assets/paper-folds.wav?url";
 import chainPullUrl from "./assets/chain-pull.wav?url";
@@ -20,6 +21,12 @@ export function prepareSound() {
   // Begin on the first full swell. Subsequent loops use the whole recording.
   ocean.currentTime = 7.8;
 
+  // The storm recording starts with its first distant rumble, then rolls on
+  // through the rest of the squall.
+  const thunder = new Audio(thunderUrl);
+  thunder.preload = "auto";
+  thunder.loop = true;
+
   const splashData = preloadEffect(splashUrl);
   const foldData = preloadEffect(foldUrl);
   const pullData = preloadEffect(chainPullUrl);
@@ -36,12 +43,45 @@ export function prepareSound() {
   let waterFilter: BiquadFilterNode | undefined;
   let surfGain: GainNode | undefined;
   let waterfallGain: GainNode | undefined;
+  let stormGain: GainNode | undefined;
+  let stormToken = 0;
   let airBuffer: AudioBuffer | undefined;
   let lastHover = -1;
   let lastDepth = 0;
   const surfaceGain = 1.65;
   const surfaceHz = 20000;
   const submergedHz = 2400;
+  const stormGainLevel = 0.42;
+
+  function resetStorm() {
+    stormToken++;
+    if (!stormGain) return;
+    const now = stormGain.context.currentTime;
+    stormGain.gain.cancelScheduledValues(now);
+    stormGain.gain.setValueAtTime(0, now);
+  }
+
+  function fadeStorm(level: number, duration: number, pause: boolean) {
+    if (!stormGain) return;
+    const context = stormGain.context;
+    const now = context.currentTime;
+    const token = ++stormToken;
+    stormGain.gain.cancelScheduledValues(now);
+    stormGain.gain.setValueAtTime(stormGain.gain.value, now);
+    if (level > 0) {
+      // Restart at the first approaching rumble whenever the squall returns.
+      try {
+        thunder.currentTime = 0;
+      } catch {}
+      void thunder.play().catch(() => {});
+      void (context as AudioContext).resume();
+    }
+    stormGain.gain.linearRampToValueAtTime(level, now + duration);
+    if (!pause) return;
+    window.setTimeout(() => {
+      if (token === stormToken) thunder.pause();
+    }, duration * 1000 + 150);
+  }
 
   function cue(kind: "title" | "dive" | "arrival" | "paper" | "hover", index = 0) {
     if (!waterFilter || !airBuffer) return;
@@ -89,6 +129,12 @@ export function prepareSound() {
       surfGain.gain.cancelScheduledValues(now);
       surfGain.gain.setTargetAtTime(1.45, now, 1.2);
     },
+    storm(duration = 2.4) {
+      fadeStorm(stormGainLevel, duration, false);
+    },
+    calmStorm(duration = 8.5) {
+      fadeStorm(0, duration, true);
+    },
     start() {
       if (waterFilter && surfGain) {
         nextFold = 0;
@@ -98,6 +144,15 @@ export function prepareSound() {
         surfGain.gain.cancelScheduledValues(now);
         surfGain.gain.setTargetAtTime(surfaceGain, now, 0.15);
         if (waterfallGain) waterfallGain.gain.setTargetAtTime(0, now, 0.25);
+        // Keep the storm silent through the fold, but unlock playback inside
+        // the click gesture so the first rumble can start on the surface.
+        resetStorm();
+        if (stormGain) {
+          try {
+            thunder.currentTime = 0;
+          } catch {}
+          void thunder.play().catch(() => {});
+        }
         void (waterFilter.context as AudioContext).resume();
         void ocean.play().catch(() => {});
         return;
@@ -139,6 +194,10 @@ export function prepareSound() {
       surfGain = context.createGain();
       surfGain.gain.value = surfaceGain;
       context.createMediaElementSource(ocean).connect(surfGain).connect(filter);
+      stormGain = context.createGain();
+      stormGain.gain.value = 0;
+      context.createMediaElementSource(thunder).connect(stormGain).connect(filter);
+      void thunder.play().catch(() => {});
       void ocean.play().catch(() => {});
       void foldData
         .then(async (data) => {
@@ -246,6 +305,7 @@ export function prepareSound() {
     returnToPortfolio() {
       pulling?.stop();
       pulling = undefined;
+      fadeStorm(0, 0.5, true);
       if (!surfGain || !waterFilter) return;
       const now = surfGain.context.currentTime;
       waterFilter.frequency.setTargetAtTime(surfaceHz, now, 0.08);

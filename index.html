@@ -18,36 +18,102 @@
   <body>
     <div id="portfolio">
       <div class="home-page">
-        <header>
-          <h1>Niklas’s Portfolio</h1>
-          <p>Computer science student</p>
+        <div class="glow glow-a" aria-hidden="true"></div>
+        <div class="glow glow-b" aria-hidden="true"></div>
+        <header class="site-header">
+          <a class="brand" href="#top">niklas<span>.dev</span></a>
+          <nav aria-label="Portfolio">
+            <a href="#about">About</a>
+            <a href="#projects">Projects</a>
+            <a href="#skills">Skills</a>
+          </nav>
+          <a class="say-hi" href="#about">Say hi <span aria-hidden="true">↗</span></a>
         </header>
-        <nav aria-label="Portfolio">
-          <a href="#about">About me</a> | <a href="#projects">My projects</a> |
-          <a href="#skills">Skills</a>
-        </nav>
         <div class="home-content">
-          <section id="about">
-            <h2>About me</h2>
-            <p>
-              Hi, I’m Niklas. I study computer science at LMU Munich. I like
-              building small programs, working with graphics, and making
-              Minecraft mods.
-            </p>
+          <section class="hero" id="top">
+            <div class="hero-copy">
+              <p class="status"><span aria-hidden="true"></span> Open to internships · Munich</p>
+              <h1>
+                Hi, I’m Niklas.<br />
+                <span class="accent">I build small things</span><br />
+                for the web.
+              </h1>
+              <p class="lede">
+                Computer science student at LMU Munich. I like small programs,
+                working with graphics, and turning GitHub activity into cargo
+                ships.
+              </p>
+              <div class="hero-actions">
+                <a class="button button-primary" href="#projects">See my work <span aria-hidden="true">↓</span></a>
+                <a class="button button-ghost" href="#about">More about me</a>
+              </div>
+            </div>
+            <aside class="code-card" aria-label="A short profile written as code">
+              <div class="code-bar">
+                <span></span><span></span><span></span>
+                <small>currently.ts</small>
+              </div>
+              <pre><code><span class="code-key">const</span> niklas = {
+  <span class="code-prop">role</span>: <span class="code-string">"CS student"</span>,
+  <span class="code-prop">school</span>: <span class="code-string">"LMU Munich"</span>,
+  <span class="code-prop">stack</span>: [<span class="code-string">"C++"</span>, <span class="code-string">"Java"</span>, <span class="code-string">"JS"</span>],
+  <span class="code-prop">currently</span>: <span class="code-string">"building small things"</span>,
+  <span class="code-prop">status</span>: <span class="code-bool">available</span>
+};</code></pre>
+              <p class="code-foot"><span aria-hidden="true"></span> compiling ideas…</p>
+            </aside>
           </section>
-          <section id="projects">
-            <h2>My projects</h2>
-            <h3><a href="#packet-flow">Packet Flow</a></h3>
-            <p>A desktop app that shows network traffic as a map.</p>
-            <h3><a href="#git-ship">Git Ship</a></h3>
-            <p>A visualization that turns GitHub activity into a cargo ship.</p>
+
+          <section class="section" id="projects">
+            <div class="section-head">
+              <p class="eyebrow">01 / Selected work</p>
+              <h2>Things I’ve been building</h2>
+            </div>
+            <div class="work-grid">
+              <a class="work-card" href="#packet-flow">
+                <span class="work-tag">Desktop app</span>
+                <h3>Packet Flow <span aria-hidden="true">↗</span></h3>
+                <p>A desktop app that shows network traffic as a map.</p>
+                <span class="work-meta">C++ · Visualization</span>
+              </a>
+              <a class="work-card" href="#git-ship">
+                <span class="work-tag">Web experiment</span>
+                <h3>Git Ship <span aria-hidden="true">↗</span></h3>
+                <p>A visualization that turns GitHub activity into a cargo ship.</p>
+                <span class="work-meta">JavaScript · Data</span>
+              </a>
+            </div>
           </section>
-          <section id="skills">
-            <h2>Skills</h2>
-            <p>C++, Java, JavaScript, HTML and CSS.</p>
+
+          <section class="section split" id="about">
+            <div id="skills">
+              <p class="eyebrow">02 / Toolbox</p>
+              <h2>What I work with</h2>
+              <ul class="chips">
+                <li>C++</li>
+                <li>Java</li>
+                <li>JavaScript</li>
+                <li>HTML</li>
+                <li>CSS</li>
+                <li>Three.js</li>
+              </ul>
+            </div>
+            <div class="about-card">
+              <p class="eyebrow">03 / About</p>
+              <p>
+                Hi, I’m Niklas. I study computer science at LMU Munich. I like
+                building small programs, working with graphics, and making
+                Minecraft mods.
+              </p>
+              <span class="signature">— Niklas</span>
+            </div>
           </section>
         </div>
-        <footer>Niklas · Personal website</footer>
+        <footer>
+          <p>© 2026 Niklas</p>
+          <p>Made with curiosity &amp; too much coffee</p>
+          <a href="#top">Back to top ↑</a>
+        </footer>
       </div>
     </div>
     <main aria-label="A Paper Ocean" aria-hidden="true">
@@ -88,6 +154,17 @@
       </h1>
       <h1 class="drift-heading" hidden>
         <span class="title-line"><span></span></span>
+      </h1>
+      <h1 id="landing-title" class="hero-title landing-title" hidden>
+        <span class="title-line"><span>Is it really</span></span>
+        <span class="title-line"><span>still AI slop?</span></span>
+      </h1>
+      <h1 id="chain-title" class="hero-title chain-title" hidden>
+        <span class="title-line"><span>When do we</span></span>
+        <span class="title-line"><span>break the chain?</span></span>
+      </h1>
+      <h1 id="release-title" class="hero-title" hidden>
+        <span class="title-line"><span>Let go</span></span>
       </h1>
       <div class="action-area">
         <button id="action" type="button" disabled hidden>

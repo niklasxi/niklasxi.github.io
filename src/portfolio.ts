@@ -2,6 +2,17 @@
 // line breaks, scroll offset and the explicit print on the sheet in sync.
 import { sheetHeight, sheetWidth } from "./creases";
 export const portfolio = document.querySelector<HTMLElement>("#portfolio")!;
+
+// Gradient-filled text computes to a transparent colour. Use the first stop
+// so the printed sheet still carries the headline ink.
+function ink(style: CSSStyleDeclaration) {
+  if (style.color !== "transparent" && style.color !== "rgba(0, 0, 0, 0)")
+    return style.color;
+  return (
+    style.backgroundImage.match(/(?:rgba?\([^)]*\)|#[0-9a-f]{3,8})/i)?.[0] ??
+    style.color
+  );
+}
 function capturePage() {
   const w = window.innerWidth,
     h = window.innerHeight,
@@ -52,6 +63,14 @@ function capturePage() {
         range.setEnd(child, word.index! + word[0].length);
         const rect = range.getBoundingClientRect();
         if (!rect.height) continue;
+        const text =
+          style.textTransform === "uppercase"
+            ? word[0].toUpperCase()
+            : style.textTransform === "lowercase"
+              ? word[0].toLowerCase()
+              : style.textTransform === "capitalize"
+                ? word[0][0].toUpperCase() + word[0].slice(1)
+                : word[0];
         ctx.font =
           style.fontStyle +
           " " +
@@ -60,12 +79,15 @@ function capturePage() {
           style.fontSize +
           " " +
           style.fontFamily;
-        const metrics = ctx.measureText(word[0]);
+        // Match the live page's tracking so large headings do not collide.
+        ctx.letterSpacing =
+          style.letterSpacing === "normal" ? "0px" : style.letterSpacing;
+        const metrics = ctx.measureText(text);
         const asc = metrics.fontBoundingBoxAscent,
           desc = metrics.fontBoundingBoxDescent;
         const baseline = rect.y + (rect.height - asc - desc) / 2 + asc;
-        ctx.fillStyle = style.color;
-        ctx.fillText(word[0], rect.x, baseline);
+        ctx.fillStyle = ink(style);
+        ctx.fillText(text, rect.x, baseline);
         if (style.textDecorationLine.includes("underline"))
           ctx.fillRect(rect.x, baseline + 1, rect.width, 1);
       }

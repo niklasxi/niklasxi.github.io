@@ -15,7 +15,7 @@ The scene requires WebGL 2. The folding sequence follows the supplied recording 
 
 ## Scene assets
 
-The first portfolio click starts the looping surf. The boat’s first contact with the water triggers a separate splash. Both recordings are bundled locally. [Ocean Waves by AudiovisuaisEU](https://pixabay.com/sound-effects/nature-ocean-waves-250310/) · [Water Splash 02 by Universfield](https://pixabay.com/sound-effects/nature-water-splash-02-352021/)
+The first portfolio click starts the looping surf. The boat’s first contact with the water triggers a separate splash, and the storm ambience fades in as the folded boat settles beneath the low clouds. All recordings are bundled locally. [Ocean Waves by AudiovisuaisEU](https://pixabay.com/sound-effects/nature-ocean-waves-250310/) · [Water Splash 02 by Universfield](https://pixabay.com/sound-effects/nature-water-splash-02-352021/) · [Dry Thunder by DRAGON-STUDIO](https://pixabay.com/sound-effects/nature-dry-thunder-364468)
 
 The folding animation uses eight trimmed and accelerated excerpts from FunWithSound’s paper recording. Each excerpt follows a crease in the animation. [Paper Fold on Pixabay](https://pixabay.com/sound-effects/household-paper-fold-31416/)
 
