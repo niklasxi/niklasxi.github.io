@@ -254,7 +254,58 @@ async function start() {
   let landed = false,
     sinceImpact = 0;
   setStage("intro", (reduced ? 3 : 4.5) + pullDuration);
+  let returning = false,
+    returned = false,
+    returnAge = 0;
+  const returnPosition = new T.Vector3(),
+    returnRotation = new T.Quaternion(),
+    returnScale = new T.Vector3();
+  let returnFold = 0;
+  const boatPicker = new T.Raycaster();
+  const unfoldingScene = new T.Scene();
+  const pointer = new T.Vector2();
+  function hitsBoat(x: number, y: number) {
+    const bounds = canvas.getBoundingClientRect();
+    pointer.set(
+      ((x - bounds.left) / bounds.width) * 2 - 1,
+      1 - ((y - bounds.top) / bounds.height) * 2,
+    );
+    boatPicker.setFromCamera(pointer, camera);
+    // The folding geometry moves every frame, so its cached bounds are stale.
+    paper.mesh.geometry.computeBoundingSphere();
+    return boatPicker.intersectObject(paper.mesh).length > 0;
+  }
+  function unfold() {
+    if (!started || returning || returned) return;
+    returning = true;
+    canvas.dataset.stage = "unfolding";
+    returnPosition.copy(boat.position);
+    returnRotation.copy(boat.quaternion);
+    returnScale.copy(boat.scale);
+    returnFold = paper.mesh.material.uniforms.uFold.value;
+    button.hidden = button.disabled = true;
+    driftHeadings.forEach((title) => { title.hidden = true; });
+    sound.returnToPortfolio();
+    narration.textContent = "The boat unfolds into Niklas’s portfolio.";
+    canvas.style.cursor = "default";
+  }
+  canvas.tabIndex = 0;
+  canvas.setAttribute("aria-description", "Click the paper boat, or press Enter here, to unfold the portfolio.");
+  canvas.addEventListener("click", (event) => {
+    if (hitsBoat(event.clientX, event.clientY)) unfold();
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!returning && !returned)
+      canvas.style.cursor = hitsBoat(event.clientX, event.clientY) ? "pointer" : "";
+  });
+  canvas.addEventListener("keydown", (event) => {
+    if (!event.repeat && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      unfold();
+    }
+  });
   function frame(stamp: number) {
+    if (returned) return;
     requestAnimationFrame(frame);
     if (document.hidden) {
       last = 0;
@@ -262,6 +313,51 @@ async function start() {
     }
     const dt = last ? Math.min(0.12, (stamp - last) / 1000) : 0;
     last = stamp;
+    if (returning) {
+      returnAge += dt;
+      const duration = reduced ? 0.75 : 2.7;
+      const progress = Math.min(1, returnAge / duration);
+      const lift = ease(0, 0.7, progress);
+      const flatten = ease(0.15, 0.83, progress);
+      const direction = camera.getWorldDirection(new T.Vector3());
+      const destination = camera.position.clone().addScaledVector(direction, 4.6);
+      const parallel = camera.quaternion.clone().multiply(
+        new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), Math.PI / 2),
+      );
+      boat.position.copy(returnPosition).lerp(destination, lift);
+      boat.quaternion.copy(returnRotation).slerp(parallel, lift);
+      const tan = Math.tan(T.MathUtils.degToRad(camera.fov * 0.5));
+      const cover = Math.max(
+        (2 * 4.6 * tan) / paper.width,
+        (2 * 4.6 * tan * camera.aspect) / paper.height,
+      );
+      boat.scale.copy(returnScale).lerp(new T.Vector3(cover, cover, cover), ease(0.72, 1, progress));
+      paper.fold(returnFold * (1 - flatten));
+      boat.updateMatrixWorld(true);
+      // Bring the sheet forward through the waterline without clipping its opening panels.
+      camera.near = 0.07;
+      camera.updateProjectionMatrix();
+      renderer.clear();
+      const autoClear = renderer.autoClear;
+      renderer.autoClear = false;
+      const visible = paper.mesh.visible;
+      paper.mesh.visible = false;
+      renderer.render(scene, camera);
+      paper.mesh.visible = visible;
+      renderer.clearDepth();
+      unfoldingScene.add(boat);
+      renderer.render(unfoldingScene, camera);
+      scene.add(boat);
+      renderer.autoClear = autoClear;
+      if (progress === 1) {
+        returned = true;
+        canvas.dataset.stage = "portfolio";
+        portfolio.hidden = false;
+        document.querySelector<HTMLElement>("main")!.hidden = true;
+        portfolio.querySelector<HTMLAnchorElement>("a")?.focus({ preventScroll: true });
+      }
+      return;
+    }
     if (started) age += dt;
     time += dt * (reduced ? 0.42 : 1);
     if (stage === "intro" && age >= stageDuration) setStage("surface");
@@ -560,7 +656,7 @@ async function start() {
     if (!started) {
       portfolio.hidden = true;
       document.querySelector("main")!.removeAttribute("aria-hidden");
-      canvas.tabIndex = -1;
+      canvas.tabIndex = 0;
       canvas.focus({ preventScroll: true });
     }
     started = true;

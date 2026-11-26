@@ -133,6 +133,15 @@ export function prepareSound() {
         0.035,
       );
     },
+    returnToPortfolio() {
+      pulling?.stop();
+      pulling = undefined;
+      if (!surfGain || !waterFilter) return;
+      const now = surfGain.context.currentTime;
+      waterFilter.frequency.setTargetAtTime(surfaceHz, now, 0.08);
+      surfGain.gain.cancelScheduledValues(now);
+      surfGain.gain.setTargetAtTime(0, now, 0.3);
+    },
     land() {
       // The recording has roughly 130 ms of lead-in before the impact.
       splash?.start(0, 0.12);
