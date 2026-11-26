@@ -23,9 +23,9 @@ export function wave(x: number, z: number, t: number, swell = 0) {
 }
 const f = (n: number) => n.toFixed(4);
 export const waveGLSL = `
-uniform float uSwell;
+uniform float uSwell,uTide;
 float heightAt(vec2 p, float t) {
-  return uSwell*(${rollers.map(([a, x, z, w, b]) => `${f(a)}*sin(dot(p,vec2(${f(x)},${f(z)}))+t*${f(w)}+${f(b)})`).join("+")}) + ${spectrum.map(([a, x, z, w, b]) => `${f(a)}*sin(dot(p,vec2(${f(x)},${f(z)}))+${f(w)}*t+${f(b)})`).join("+")};
+  return uTide + uSwell*(${rollers.map(([a, x, z, w, b]) => `${f(a)}*sin(dot(p,vec2(${f(x)},${f(z)}))+t*${f(w)}+${f(b)})`).join("+")}) + ${spectrum.map(([a, x, z, w, b]) => `${f(a)}*sin(dot(p,vec2(${f(x)},${f(z)}))+${f(w)}*t+${f(b)})`).join("+")};
 }
 vec2 slopeAt(vec2 p, float t) {
   return uSwell*(${rollers.map(([a, x, z, w, b]) => `vec2(${f(a * x)},${f(a * z)})*cos(dot(p,vec2(${f(x)},${f(z)}))+t*${f(w)}+${f(b)})`).join("+")}) + ${spectrum.map(([a, x, z, w, b]) => `vec2(${f(a * x)},${f(a * z)})*cos(dot(p,vec2(${f(x)},${f(z)}))+${f(w)}*t+${f(b)})`).join("+")};

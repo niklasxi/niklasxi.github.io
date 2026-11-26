@@ -1,4 +1,6 @@
 import * as T from "three";
+import { waveGLSL } from "./waves";
+import { causticsGLSL } from "./environment";
 import { createFoldPose } from "./pocket";
 
 import {
@@ -30,6 +32,87 @@ function sheetIndices(flat: T.Vector2[]) {
     }
   }
   return indices;
+}
+
+function createPaperMaterial(grain: T.Texture) {
+  const uniforms = {
+    uPrint: { value: null as T.Texture | null },
+    uGrain: { value: grain },
+    uStars: { value: null as T.Texture | null },
+    uFlight: { value: 0 },
+    uClearing: { value: 0 },
+    uFold: { value: 0 },
+    uAirLight: { value: 0 },
+    uDive: { value: 0 }, uTime: { value: 0 }, uSwell: { value: 0 }, uTide: { value: 0 },
+    uTransmissionPass: { value: false },
+  };
+  const material = new T.ShaderMaterial({
+    side: T.DoubleSide,
+    uniforms,
+    vertexShader: `attribute vec3 bary; attribute float ink,seam;
+    varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vInk,vSeam;
+    void main(){vCurvedNormal=mat3(modelMatrix)*normal;vUv=uv;vInk=ink;vSeam=seam;vBary=bary;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
+    fragmentShader: `
+    uniform float uTime,uDive,uClearing;
+    uniform bool uTransmissionPass;
+    ${waveGLSL}
+    ${causticsGLSL}
+    uniform sampler2D uPrint,uGrain,uStars; uniform float uFold,uAirLight,uFlight;
+    varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vInk,vSeam;
+    float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
+    void main(){
+      vec3 image=texture2D(uPrint,vUv).rgb;
+      vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));
+      if(uAirLight>.0001 && dot(vCurvedNormal,vCurvedNormal)>.0001)
+        n=normalize(mix(n,normalize(gl_FrontFacing?vCurvedNormal:-vCurvedNormal),smoothstep(0.,.14,uAirLight)));
+      float lit=dot(n,normalize(vec3(-.68,.59,.43)));
+      float grain=texture2D(uGrain,vUv*vec2(2.8,2.1)).r-.5;
+      float fiber=texture2D(uGrain,vUv.yx*vec2(.85,1.35)).r-.5;
+      vec3 cream=mix(vec3(.76,.74,.72),vec3(1.,.975,.93),clamp(.52+lit*.51,0.,1.));
+      float printAmount=mix(gl_FrontFacing?1.:.025,vInk,smoothstep(.82,1.,uFold));
+      vec3 printed=mix(image,vec3(.76,.76,.75)+image*.24,smoothstep(.78,1.,uFold)*.29);
+      vec2 border=min(vUv,1.-vUv);
+      float plate=smoothstep(.023,.025,min(border.x,border.y));
+      vec3 starInk=texture2D(uStars,vUv).rgb;
+      vec3 reverse=mix(cream,cream*(.10+.88*starInk),plate);
+      vec3 existingPrint=mix(cream,printed,printAmount);
+      // Leave a little of the printed reverse visible inside the folded hull.
+      if(!gl_FrontFacing) existingPrint=mix(existingPrint,reverse,.22);
+      vec3 color=mix(existingPrint,gl_FrontFacing?image:reverse,uFlight);
+      float hem=step(.3293,abs(vUv.x-.5))*smoothstep(.53,.77,uFold);
+      color=mix(color,color*vec3(.98,.975,.965),hem);
+      float lip=1.-smoothstep(0.,.008,min(vUv.x,1.-vUv.x));
+      color=mix(color,vec3(1.,.98,.94),hem*lip*.8);
+      color*=mix(vec3(1.),vec3(.96,.955,.95)+max(0.,lit)*vec3(.07,.065,.055),smoothstep(.0,.65,uFold));
+      // Raking sunset light makes the curl readable on the white printed face.
+      color*=mix(vec3(1.),mix(vec3(.69,.73,.77),vec3(1.03,.98,.88),smoothstep(-.5,.85,lit)),uFlight);
+      vec3 dist=vBary/max(fwidth(vBary),vec3(.00001));
+      float crease=1.-smoothstep(.1,1.05,min(dist.x,min(dist.y,dist.z)));
+      color=mix(color,cream*.72,crease*vSeam*.46*smoothstep(.015,.25,uFold));
+      // Old keel, brim and diagonal folds catch grazing light even on the
+      // opened sheet. Locate them in material coordinates across both patterns.
+      vec2 stock=(vUv.yx-.5)*vec2(5.24,-7.04);
+      vec2 q=abs(stock);
+      float ridge=min(min(q.x,q.y),min(abs(q.y-2.62),abs(q.x-q.y)*.7071));
+      float foot=max(fwidth(ridge),.006);
+      float scar=1.-smoothstep(0.,foot+.012,ridge);
+      float shoulder=1.-smoothstep(.009,.033+foot,abs(ridge-.025));
+      color*=1.+uFlight*(.045*shoulder-.105*scar);
+      color+=vec3(grain*.075+fiber*.045)*max(uFlight,smoothstep(.01,.45,uFold));
+      color*=mix(vec3(1.),vec3(.80,.84,.88), (1.-uClearing)*smoothstep(0.,.35,uFold));
+      if(uDive>.001){
+        float depth=heightAt(vWorld.xz,uTime)-vWorld.y;
+        if(uTransmissionPass && depth<0.) discard;
+        float wet=uDive*smoothstep(-.025,.09,depth);
+        float bands=caustic(vWorld.xz*1.7+vWorld.y*.28,uTime);
+        vec3 submerged=color*vec3(.37,.69,.66)+vec3(.04,.15,.14)*bands;
+        color=mix(color,submerged,wet);
+      }
+      gl_FragColor=vec4(color,1.);
+    }`,
+  });
+  Object.assign(material.defaultAttributeValues, { normal: [0, 0, 1] });
+  return { material, uniforms };
 }
 
 export function createPaper(grain: T.Texture) {
@@ -65,42 +148,7 @@ export function createPaper(grain: T.Texture) {
   geom.setAttribute("ink", new T.Float32BufferAttribute(ink, 1));
   geom.setAttribute("seam", new T.Float32BufferAttribute(seam, 1));
   const foldPose = createFoldPose(flat, centers);
-  const mat = new T.ShaderMaterial({
-    side: T.DoubleSide,
-    uniforms: {
-      uPrint: { value: null as T.Texture | null },
-      uGrain: { value: grain },
-      uFold: { value: 0 },
-    },
-    vertexShader: `attribute vec3 bary; attribute float ink,seam;
-    varying vec3 vBary,vWorld; varying vec2 vUv; varying float vInk,vSeam;
-    void main(){vUv=uv;vInk=ink;vSeam=seam;vBary=bary;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
-    fragmentShader: `
-    uniform sampler2D uPrint,uGrain; uniform float uFold;
-    varying vec3 vBary,vWorld; varying vec2 vUv; varying float vInk,vSeam;
-    float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
-    void main(){
-      vec3 image=texture2D(uPrint,vUv).rgb;
-      vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));
-      float lit=dot(n,normalize(vec3(-.68,.59,.43)));
-      float grain=texture2D(uGrain,vUv*vec2(2.8,2.1)).r-.5;
-      float fiber=texture2D(uGrain,vUv.yx*vec2(.85,1.35)).r-.5;
-      vec3 cream=mix(vec3(.66,.605,.57),vec3(1.,.93,.79),clamp(.52+lit*.51,0.,1.));
-      float printAmount=mix(gl_FrontFacing?1.:.025,vInk,smoothstep(.82,1.,uFold));
-      vec3 printed=mix(image,vec3(.66,.66,.65)+image*.25,smoothstep(.78,1.,uFold)*.29);
-      vec3 color=mix(cream,printed,printAmount);
-      float hem=step(.3293,abs(vUv.x-.5))*smoothstep(.53,.77,uFold);
-      color=mix(color,color*vec3(.98,.97,.952),hem);
-      float lip=1.-smoothstep(0.,.008,min(vUv.x,1.-vUv.x));
-      color=mix(color,vec3(1.,.946,.83),hem*lip*.8);
-      color*=mix(vec3(1.),vec3(.94,.92,.90)+max(0.,lit)*vec3(.10,.09,.065),smoothstep(.0,.65,uFold));
-      vec3 dist=vBary/max(fwidth(vBary),vec3(.00001));
-      float crease=1.-smoothstep(.1,1.05,min(dist.x,min(dist.y,dist.z)));
-      color=mix(color,cream*.72,crease*vSeam*.46*smoothstep(.015,.25,uFold));
-      color+=vec3(grain*.14+fiber*.10)*smoothstep(.01,.45,uFold);
-      gl_FragColor=vec4(color,1.);
-    }`,
-  });
+  const { material: mat, uniforms } = createPaperMaterial(grain);
   const mesh = new T.Mesh(geom, mat);
   mesh.frustumCulled = false;
   let previous = -1;
@@ -112,8 +160,8 @@ export function createPaper(grain: T.Texture) {
       const p = pose[i];
       pos.setXYZ(i, p.x, p.y, p.z);
     }
-    mat.uniforms.uFold.value = amount;
+    uniforms.uFold.value = amount;
     pos.needsUpdate = true;
   }
-  return { mesh, fold, width, height };
+  return { mesh, fold, width, height, uniforms };
 }

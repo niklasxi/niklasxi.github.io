@@ -35,6 +35,7 @@ export function prepareSound() {
   let splash: AudioBufferSourceNode | undefined;
   let waterFilter: BiquadFilterNode | undefined;
   let surfGain: GainNode | undefined;
+  let waterfallGain: GainNode | undefined;
   let airBuffer: AudioBuffer | undefined;
   let lastHover = -1;
   let lastDepth = 0;
@@ -96,6 +97,7 @@ export function prepareSound() {
         waterFilter.frequency.setValueAtTime(surfaceHz, now);
         surfGain.gain.cancelScheduledValues(now);
         surfGain.gain.setTargetAtTime(surfaceGain, now, 0.15);
+        if (waterfallGain) waterfallGain.gain.setTargetAtTime(0, now, 0.25);
         void (waterFilter.context as AudioContext).resume();
         void ocean.play().catch(() => {});
         return;
@@ -111,6 +113,18 @@ export function prepareSound() {
       airBuffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
       const air = airBuffer.getChannelData(0);
       for (let i = 0; i < air.length; i++) air[i] = Math.random() * 2 - 1;
+      const rumble = context.createBufferSource();
+      rumble.buffer = airBuffer;
+      rumble.loop = true;
+      const rumbleFilter = context.createBiquadFilter();
+      rumbleFilter.type = "lowpass";
+      rumbleFilter.frequency.value = 380;
+      rumbleFilter.Q.value = 0.7;
+      waterfallGain = context.createGain();
+      waterfallGain.gain.value = 0;
+      rumble.connect(rumbleFilter).connect(waterfallGain).connect(filter);
+      rumble.start();
+
       void pullData
         .then(async (data) => {
           if (data) pullBuffer = await context.decodeAudioData(data);
@@ -237,6 +251,13 @@ export function prepareSound() {
       waterFilter.frequency.setTargetAtTime(surfaceHz, now, 0.08);
       surfGain.gain.cancelScheduledValues(now);
       surfGain.gain.setTargetAtTime(0, now, 0.3);
+      if (waterfallGain) waterfallGain.gain.setTargetAtTime(0, now, 0.35);
+    },
+    takeoff(duration: number) {
+      if (!surfGain) return;
+      const now = surfGain.context.currentTime;
+      surfGain.gain.cancelScheduledValues(now);
+      surfGain.gain.setTargetAtTime(0.65, now, Math.max(0.35, duration * 0.28));
     },
     land() {
       if (!splash && splashBuffer && splashGain && waterFilter) {

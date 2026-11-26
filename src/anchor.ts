@@ -5,6 +5,7 @@ import { waveGLSL } from "./waves";
 export interface WaterLight {
   uTime: T.IUniform<number>;
   uSwell: T.IUniform<number>;
+  uTide: T.IUniform<number>;
 }
 
 // Evaluate the same water surface as the hull. The optical path begins at
@@ -17,6 +18,7 @@ export function submerge(material: T.MeshStandardMaterial, water: WaterLight) {
     prepare(shader, renderer);
     shader.uniforms.uTime = water.uTime;
     shader.uniforms.uSwell = water.uSwell;
+    shader.uniforms.uTide = water.uTide;
     shader.vertexShader =
       "varying vec3 vWaterWorld;\n" +
       shader.vertexShader.replace(
