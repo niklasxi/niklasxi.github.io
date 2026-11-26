@@ -263,3 +263,51 @@ noscript,
   background: #eee;
   color: #555;
 }
+
+#destinations {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#destinations button {
+  position: absolute;
+  transform: translate(-50%, 0);
+  min-width: 0;
+  white-space: nowrap;
+  background: #163944eb;
+  animation: none;
+}
+#project-detail {
+  position: absolute;
+  left: 6vw;
+  bottom: max(8vh, 24px);
+  width: min(340px, 80vw);
+  color: #173443;
+  background: #fff7e9f5;
+  border-radius: 3px;
+  padding: 1.3rem 1.6rem;
+  box-shadow: 0 12px 40px #142a3329;
+}
+#project-detail h2 {
+  margin: 0;
+  font-weight: 500;
+  font-size: 2rem;
+}
+#project-detail p {
+  line-height: 1.5;
+}
+#project-detail a {
+  color: #214f60;
+}
+#project-detail button {
+  display: block;
+  min-width: 0;
+  margin-top: 1rem;
+  background: #183743;
+}
+@media (max-width: 600px) {
+  #destinations button {
+    padding: 8px 12px;
+    font-size: 0.83rem;
+  }
+}
