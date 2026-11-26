@@ -4,7 +4,7 @@ import { ease, wave } from "./waves";
 export function flightTiming(reduced: boolean) {
   const launchEnd = reduced ? 0.45 : 0.78;
   const openEnd = launchEnd + (reduced ? 1.2 : 2.2);
-  const foldDuration = reduced ? 3.2 : 7;
+  const foldDuration = reduced ? 2.2 : 4.5;
   return { launchEnd, openEnd, foldDuration };
 }
 

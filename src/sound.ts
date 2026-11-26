@@ -45,6 +45,7 @@ export function prepareSound() {
   let waterfallGain: GainNode | undefined;
   let stormGain: GainNode | undefined;
   let stormToken = 0;
+
   let airBuffer: AudioBuffer | undefined;
   let lastHover = -1;
   let lastDepth = 0;
@@ -312,6 +313,32 @@ export function prepareSound() {
       surfGain.gain.cancelScheduledValues(now);
       surfGain.gain.setTargetAtTime(0, now, 0.3);
       if (waterfallGain) waterfallGain.gain.setTargetAtTime(0, now, 0.35);
+    },
+    lightsOut(reduced: boolean) {
+      ocean.pause();
+      thunder.pause();
+      resetStorm();
+      if (!waterFilter || !airBuffer) return;
+      const context = waterFilter.context;
+      const now = context.currentTime;
+      const duration = reduced ? 1.12 : 1.8;
+      const noise = context.createBufferSource();
+      noise.buffer = airBuffer;
+      noise.loop = true;
+      const speaker = context.createBiquadFilter();
+      speaker.type = "bandpass";
+      speaker.Q.value = 0.52;
+      speaker.frequency.setValueAtTime(3500, now);
+      speaker.frequency.exponentialRampToValueAtTime(1200, now + duration);
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.29, now);
+      gain.gain.exponentialRampToValueAtTime(0.095, now + 0.043);
+      gain.gain.setValueAtTime(0.095, now + 0.55 * duration);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      noise.connect(speaker).connect(gain).connect(context.destination);
+      noise.onended = () => { noise.disconnect(); speaker.disconnect(); gain.disconnect(); };
+      noise.start(now);
+      noise.stop(now + duration);
     },
     takeoff(duration: number) {
       if (!surfGain) return;

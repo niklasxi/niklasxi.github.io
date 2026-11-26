@@ -17,6 +17,8 @@ import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
 import { createPaper } from "./paper";
 import { createPaperSprings, createFlexiblePaper } from "./paperFlex";
+import { createCosmicEnding, frameLastLight } from "./cosmicEnding";
+import { loadTelevision } from "./television";
 import { createPlane } from "./plane";
 import { createPaperFlight, flightTiming } from "./paperFlight";
 import starUrl from "../references/04-space.png?url";
@@ -34,7 +36,11 @@ type Stage =
   | "transform"
   | "sheet"
   | "folding"
-  | "flight";
+  | "flight"
+  | "last-light"
+  | "blackout"
+  | "space"
+  | "end";
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
@@ -43,6 +49,9 @@ const driftHeadings =
 const landingTitle = document.querySelector<HTMLHeadingElement>("#landing-title")!;
 const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
 const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
+const lightTitle = document.querySelector<HTMLElement>("#light-title")!;
+const endTitle = document.querySelector<HTMLElement>("#end-title")!;
+const returnButton = document.querySelector<HTMLButtonElement>("#return-portfolio")!;
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -57,9 +66,10 @@ async function start() {
   renderer.setClearColor(0x000000, 0);
   const loader = new T.TextureLoader();
   const atlasReady = loader.loadAsync(swimUrl).catch(() => null);
-  const [sky, storm, ripples, sand, grain, stars] = await Promise.all(
-    [skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, starUrl].map((url) => loader.loadAsync(url)),
-  );
+  const [[sky, storm, ripples, sand, grain, stars], television] = await Promise.all([
+    Promise.all([skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, starUrl].map(url => loader.loadAsync(url))),
+    loadTelevision(),
+  ]);
   for (const texture of [ripples, sand, grain]) {
     texture.wrapS = texture.wrapT = T.RepeatWrapping;
     texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -152,6 +162,9 @@ async function start() {
     atBreakX = 0,
     atBreakZ = 0;
   let stageDuration = 0;
+  let ending: ReturnType<typeof createCosmicEnding> | undefined;
+  let spaceTime = 0;
+  let endingReduced = reduced;
   let headingIndex = 0,
     headingSince = 0;
   let findOutShown = false;
@@ -223,6 +236,20 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
+    lightTitle.hidden = s !== "last-light";
+    endTitle.hidden = returnButton.hidden = s !== "end";
+    if (s === "end" && keyboardAction) returnButton.focus({ preventScroll: true });
+    if (s === "blackout") {
+      sound.lightsOut(reduced);
+      canvas.style.cursor = "";
+      canvas.removeAttribute("aria-description");
+      canvas.tabIndex = -1;
+      endingReduced = reduced;
+      ending = createCosmicEnding(television);
+      camera.aspect = ending.feedAspect;
+      camera.updateProjectionMatrix();
+      spaceTime = 0;
+    }
     if (s === "intro") {
       snapSplash.clear();
       landingTitle.hidden = true;
@@ -310,6 +337,10 @@ async function start() {
       folding: "The sheet folds into a paper airplane as it flies.",
       flight:
         "The paper airplane glides over the ocean toward the setting sun.",
+      "last-light": "What if the light just went out?",
+      blackout: "The sunset cuts to television static.",
+      space: "The picture returns on a television floating in deep space. The plane flies toward sunset on its screen as the television falls into a black hole.",
+      end: "When does it end?",
     };
     canvas.setAttribute("aria-label", descriptions[s]);
     if (s !== "intro") narration.textContent = descriptions[s];
@@ -399,7 +430,7 @@ async function start() {
       Math.min(devicePixelRatio, 1.65, Math.sqrt(2450000 / (w * h))),
     );
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    camera.aspect = ending?.feedAspect ?? w / h;
     camera.updateProjectionMatrix();
     reflection.setSize(
       Math.max(120, Math.round(w * 0.48)),
@@ -466,6 +497,7 @@ async function start() {
   const unfoldingScene = new T.Scene();
   const pointer = new T.Vector2();
   function hitsBoat(x: number, y: number) {
+    if (ending) return false;
     const bounds = canvas.getBoundingClientRect();
     pointer.set(
       ((x - bounds.left) / bounds.width) * 2 - 1,
@@ -482,7 +514,7 @@ async function start() {
     return projected.z < 1 && Math.hypot(x - sx, y - sy) < 56;
   }
   function unfold() {
-    if (!started || returning || returned) return;
+    if (!started || returning || returned || ending) return;
     returning = true;
     canvas.dataset.stage = "unfolding";
     returnPosition.copy(boat.position);
@@ -494,17 +526,14 @@ async function start() {
     driftHeadings.forEach((title) => {
       title.hidden = true;
     });
+    lightTitle.hidden = true;
     sound.returnToPortfolio();
     sound.cue("paper");
     sound.unfold(returnFold, reduced ? 0.75 : 2.7);
     narration.textContent = "The paper opens into Niklas’s portfolio.";
     canvas.style.cursor = "default";
   }
-  canvas.tabIndex = 0;
-  canvas.setAttribute(
-    "aria-description",
-    "Click the paper, or press Enter here, to unfold the portfolio.",
-  );
+
   canvas.addEventListener("click", (event) => {
     if (hitsBoat(event.clientX, event.clientY)) unfold();
   });
@@ -520,6 +549,53 @@ async function start() {
       unfold();
     }
   });
+
+  function showPortfolio() {
+    ending?.dispose();
+    ending = undefined;
+    endTitle.hidden = returnButton.hidden = true;
+    returned = true;
+    canvas.dataset.stage = "portfolio";
+    portfolio.hidden = false;
+    document.querySelector<HTMLElement>("main")!.hidden = true;
+    portfolio
+      .querySelector<HTMLAnchorElement>("a")
+      ?.focus({ preventScroll: true });
+    void waitForPortfolioClick(() => {
+      sound.start();
+      sound.click();
+    }).then((image) => {
+      const previousPrint = paper.mesh.material.uniforms.uPrint.value;
+      const nextPrint = new T.CanvasTexture(image);
+      nextPrint.anisotropy = print.anisotropy;
+      paper.mesh.material.uniforms.uPrint.value = nextPrint;
+      previousPrint?.dispose();
+      returning = returned = false;
+      planePattern = false;
+      returnAge = 0;
+      landed = false;
+      sinceImpact = 0;
+      releaseElapsed = releaseWaveTime = 0;
+      headingIndex = headingSince = 0;
+      findOutShown = false;
+      paper.mesh.visible = true;
+      flexStrength = flexWind = 0;
+      paper.mesh.geometry = boatGeometry;
+      paper.uniforms.uFlight.value = paper.uniforms.uAirLight.value = 0;
+      plane.fold(0);
+      driftHeadings.forEach((title) => {
+        title.hidden = true;
+        title.style.opacity = "";
+      });
+      started = false;
+      last = 0;
+      document.querySelector<HTMLElement>("main")!.hidden = false;
+      resize();
+      setStage("intro", (reduced ? 3 : 4.5) + pullDuration);
+      requestAnimationFrame(frame);
+    });
+  }
+  returnButton.addEventListener("click", showPortfolio);
 
   function frame(stamp: number) {
     if (returned) return;
@@ -582,51 +658,22 @@ async function start() {
       scene.add(boat);
       renderer.autoClear = autoClear;
       if (progress === 1) {
-        returned = true;
-        canvas.dataset.stage = "portfolio";
-        portfolio.hidden = false;
-        document.querySelector<HTMLElement>("main")!.hidden = true;
-        portfolio
-          .querySelector<HTMLAnchorElement>("a")
-          ?.focus({ preventScroll: true });
-        void waitForPortfolioClick(() => {
-          sound.start();
-          sound.click();
-        }).then((image) => {
-          const previousPrint = paper.mesh.material.uniforms.uPrint.value;
-          const nextPrint = new T.CanvasTexture(image);
-          nextPrint.anisotropy = print.anisotropy;
-          paper.mesh.material.uniforms.uPrint.value = nextPrint;
-          previousPrint?.dispose();
-          returning = returned = false;
-          planePattern = false;
-          returnAge = 0;
-          landed = false;
-          sinceImpact = 0;
-          releaseElapsed = releaseWaveTime = 0;
-          headingIndex = headingSince = 0;
-          findOutShown = false;
-          paper.mesh.visible = true;
-          flexStrength = flexWind = 0;
-          paper.mesh.geometry = boatGeometry;
-          paper.uniforms.uFlight.value = paper.uniforms.uAirLight.value = 0;
-          plane.fold(0);
-          driftHeadings.forEach((title) => {
-            title.hidden = true;
-            title.style.opacity = "";
-          });
-          started = false;
-          last = 0;
-          document.querySelector<HTMLElement>("main")!.hidden = false;
-          resize();
-          setStage("intro", (reduced ? 3 : 4.5) + pullDuration);
-          requestAnimationFrame(frame);
-        });
+        showPortfolio();
       }
       return;
     }
     if (started) age += dt;
     time += dt * (reduced ? 0.42 : 1);
+    if (stage === "flight" && age >= (reduced ? 1.7 : 3.8)) setStage("last-light", reduced ? 2.8 : 4.3);
+    if (stage === "last-light" && age >= stageDuration) setStage("blackout", reduced ? 0.72 : 1.35);
+    if (ending) {
+      spaceTime += dt;
+      if (stage === "blackout" && age >= stageDuration) setStage("space");
+      if (stage === "end") {
+        ending.render(renderer, spaceTime, endingReduced, w / h);
+        return;
+      }
+    }
     env.uniforms.uSkyMotion.value = reduced ? 0.15 : 1;
     const cloudTime = time * env.uniforms.uSkyMotion.value;
     sun.intensity =
@@ -704,7 +751,7 @@ async function start() {
       }
     }
 
-    const skyChapter = stage === "transform" || stage === "sheet" || stage === "folding" || stage === "flight";
+    const skyChapter = !!ending || stage === "transform" || stage === "sheet" || stage === "folding" || stage === "flight" || stage === "last-light";
     const aspect = camera.aspect,
       tan = Math.tan(T.MathUtils.degToRad(camera.fov * 0.5));
     const narrow = 1 - ease(0.7, 1.35, aspect);
@@ -1044,6 +1091,10 @@ async function start() {
       orientPlane(velocity.x, velocity.y, velocity.z, bank);
       boat.quaternion.slerp(planeQuat, ease(0.04, 1, fold));
 
+      const finalGlide = ending || stage === "last-light" ? 1
+        : stage === "flight" ? ease(0, reduced ? 1.7 : 3.8, age) : 0;
+      boat.rotateX(-0.24 * finalGlide);
+      boat.rotateY(0.17 * finalGlide);
       paper.uniforms.uFlight.value = ease(0, timing.launchEnd, elapsed);
       if (elapsed < timing.openEnd) {
         paper.fold(1 - unfold);
@@ -1087,6 +1138,9 @@ async function start() {
       const frameIn = ease(0, reduced ? 1.0 : 1.9, elapsed);
       camera.position.copy(transCamStartPos).add(flightPosition).sub(transStartPos).lerp(camGoalPos, frameIn);
       look.copy(transCamStartLook).add(flightPosition).sub(transStartPos).lerp(camGoalLook, frameIn);
+      if (ending || stage === "flight" || stage === "last-light") {
+        frameLastLight(flightPosition, sunDir, aspect, tan, finalGlide, camera.position, look);
+      }
       camera.lookAt(look);
       camera.updateMatrixWorld();
       un.uViewProjection.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -1104,7 +1158,8 @@ async function start() {
       un.uBoat.value.copy(flightPosition);
       un.uSwell.value = swell;
       un.uReflectionStrength.value = 1 - 0.66 * unfold;
-      if (un.uReflectionStrength.value > 0.001) reflectPaper(seaLevel);
+      if (!ending && un.uReflectionStrength.value > 0.001) reflectPaper(seaLevel);
+      if (ending) un.uReflectionStrength.value = 0;
       un.uTime.value = time;
       un.uImpact.value = -1;
       un.uDive.value = 0;
@@ -1115,10 +1170,16 @@ async function start() {
       un.uSun.value.copy(sunDir);
     }
 
+    if (ending) {
+      ending.capture(renderer, scene, camera, spaceTime);
+      if (ending.render(renderer, spaceTime, endingReduced, w / h)) setStage("end");
+      return;
+    }
     renderer.render(scene, camera);
     if (!started) {
       portfolio.hidden = true;
       document.querySelector("main")!.removeAttribute("aria-hidden");
+      canvas.setAttribute("aria-description", "Click the paper, or press Enter here, to unfold the portfolio.");
       canvas.tabIndex = 0;
       canvas.focus({ preventScroll: true });
     }

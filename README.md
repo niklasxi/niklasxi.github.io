@@ -9,11 +9,13 @@ npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite. Move the pointer to shift the viewpoint. Scroll or read the portfolio, then click anywhere or activate a link with Enter. The camera pulls back from the page and the printed sheet folds and drops into the water. Choose **Look beneath** to follow the chain to the anchor, then **Let go** to watch the boat draw the chain tight and snap the bow link. The camera follows the boat through larger swells as it leaves a foamy wake. Both buttons also accept Tab followed by Enter or Space. Reload to replay.
+Open the local address printed by Vite. Move the pointer to shift the viewpoint. Scroll or read the portfolio, then click anywhere or activate a link with Enter. The camera pulls back from the page and the printed sheet folds and drops into the water. Choose **Look beneath** to follow the chain to the anchor, then **Let go** to watch the boat draw the chain tight and snap the bow link. The camera follows the boat through larger swells as it leaves a foamy wake. The controls also accept Tab followed by Enter or Space. Choose **Find out**, then **Fold into a plane** to fly toward the sunset. Static interrupts the flight. The camera pulls back from the picture tube, revealing a television that drifts into a black hole. **Return to portfolio** lets you start again.
 
 The scene requires WebGL 2. The folding sequence follows the supplied recording through alternate triangle and diamond shapes. The rectangular-sheet construction also uses the [NRICH folding guide](https://nrich.maths.org/making-maths-boat-folding). It honors the system's reduced-motion setting and pauses its clock while the tab is hidden. To type-check and build the production version, run `npm run build`.
 
 ## Scene assets
+
+The supplied FBX television is bundled as a GLB. Its curved screen receives a live render of the plane and ocean at up to 24 frames per second. The black-hole shader adapts Jonás Javier Encarnación’s method for bending rays around a Schwarzschild black hole and shading a rotating accretion disk. It caches the ray paths and samples a sparse star field with distant galaxies drawn from the supplied reference. [Black Hole Shader in Three.js](https://jonasjavier.dev/en/blog/black-hole-three-js-shader-tutorial#the-full-file)
 
 The first portfolio click starts the looping surf. The boat’s first contact with the water triggers a separate splash, and the storm ambience fades in as the folded boat settles beneath the low clouds. All recordings are bundled locally. [Ocean Waves by AudiovisuaisEU](https://pixabay.com/sound-effects/nature-ocean-waves-250310/) · [Water Splash 02 by Universfield](https://pixabay.com/sound-effects/nature-water-splash-02-352021/) · [Dry Thunder by DRAGON-STUDIO](https://pixabay.com/sound-effects/nature-dry-thunder-364468)
 
