@@ -60,7 +60,7 @@ export function prepareSound() {
     filter.frequency.setValueAtTime(kind === "dive" ? 1600 : 700, now);
     filter.frequency.exponentialRampToValueAtTime(kind === "dive" ? 150 : 1900, now + duration);
     const gain = context.createGain();
-    const volume = kind === "hover" ? 0.012 : kind === "title" ? 0.045 : 0.035;
+    const volume = kind === "hover" ? 0.018 : kind === "title" ? 0.065 : 0.035;
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(volume, now + duration * 0.2);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
@@ -72,7 +72,7 @@ export function prepareSound() {
     const toneGain = context.createGain();
     tone.frequency.value = (kind === "arrival" ? 220 : 330) * 2 ** ([0, 2, 7, 4][index % 4] / 12);
     toneGain.gain.setValueAtTime(0, now);
-    toneGain.gain.linearRampToValueAtTime(0.017, now + 0.06);
+    toneGain.gain.linearRampToValueAtTime(kind === "title" ? 0.025 : 0.017, now + 0.06);
     toneGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     tone.connect(toneGain).connect(waterFilter);
     tone.onended = () => { tone.disconnect(); toneGain.disconnect(); };
@@ -160,7 +160,7 @@ export function prepareSound() {
       oscillator.type = "sine";
       oscillator.frequency.setValueAtTime(720, now);
       oscillator.frequency.exponentialRampToValueAtTime(310, now + 0.045);
-      gain.gain.setValueAtTime(0.035, now);
+      gain.gain.setValueAtTime(0.05, now);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
       oscillator.connect(gain).connect(waterFilter);
       oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
