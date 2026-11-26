@@ -132,7 +132,12 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
-    if (s === "drift") driftHeadings[0].hidden = false;
+    if (s === "drift") {
+      driftHeadings[0].hidden = false;
+      sound.cue("title");
+    }
+    if (s === "descending") sound.cue("dive");
+    if (s === "surface" || s === "anchored") sound.cue("arrival");
     button.hidden = button.disabled = !(s === "surface" || s === "anchored");
     if (s === "surface" || s === "anchored") {
       const below = s === "anchored";
@@ -173,6 +178,12 @@ async function start() {
     }
   }
   button.addEventListener("click", activate);
+  button.addEventListener("pointerenter", () => {
+    if (!button.disabled) sound.cue("hover");
+  });
+  button.addEventListener("focus", () => {
+    if (!button.disabled) sound.cue("hover");
+  });
   button.addEventListener("keydown", (e) => {
     if (e.repeat && (e.key === "Enter" || e.key === " ")) e.preventDefault();
   });
@@ -287,6 +298,7 @@ async function start() {
     button.hidden = button.disabled = true;
     driftHeadings.forEach((title) => { title.hidden = true; });
     sound.returnToPortfolio();
+    sound.cue("paper");
     sound.unfold(returnFold, reduced ? 0.75 : 2.7);
     narration.textContent = "The boat unfolds into Niklas’s portfolio.";
     canvas.style.cursor = "default";
@@ -398,6 +410,7 @@ async function start() {
         const next = driftHeadings[++headingIndex];
         next.hidden = false;
         headingSince = age;
+        if (next.textContent?.trim()) sound.cue("title", headingIndex);
         narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
       }
     }

@@ -35,12 +35,53 @@ export function prepareSound() {
   let splash: AudioBufferSourceNode | undefined;
   let waterFilter: BiquadFilterNode | undefined;
   let surfGain: GainNode | undefined;
+  let airBuffer: AudioBuffer | undefined;
+  let lastHover = -1;
   let lastDepth = 0;
   const surfaceGain = 1.65;
   const surfaceHz = 20000;
   const submergedHz = 2400;
 
+  function cue(kind: "title" | "dive" | "arrival" | "paper" | "hover", index = 0) {
+    if (!waterFilter || !airBuffer) return;
+    const context = waterFilter.context;
+    if (context.state !== "running") return;
+    const now = context.currentTime;
+    if (kind === "hover") {
+      if (now - lastHover < 0.3) return;
+      lastHover = now;
+    }
+    const duration = kind === "dive" ? 1.5 : kind === "title" ? 1.1 : kind === "hover" ? 0.09 : 0.45;
+    const source = context.createBufferSource();
+    source.buffer = airBuffer;
+    const filter = context.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.Q.value = 0.6;
+    filter.frequency.setValueAtTime(kind === "dive" ? 1600 : 700, now);
+    filter.frequency.exponentialRampToValueAtTime(kind === "dive" ? 150 : 1900, now + duration);
+    const gain = context.createGain();
+    const volume = kind === "hover" ? 0.012 : kind === "title" ? 0.045 : 0.035;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + duration * 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    source.connect(filter).connect(gain).connect(waterFilter);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+    source.start(now, 0, duration);
+    if (kind !== "title" && kind !== "arrival") return;
+    const tone = context.createOscillator();
+    const toneGain = context.createGain();
+    tone.frequency.value = (kind === "arrival" ? 220 : 330) * 2 ** ([0, 2, 7, 4][index % 4] / 12);
+    toneGain.gain.setValueAtTime(0, now);
+    toneGain.gain.linearRampToValueAtTime(0.017, now + 0.06);
+    toneGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    tone.connect(toneGain).connect(waterFilter);
+    tone.onended = () => { tone.disconnect(); toneGain.disconnect(); };
+    tone.start(now);
+    tone.stop(now + duration);
+  }
+
   return {
+    cue,
     start() {
       if (waterFilter && surfGain) {
         nextFold = 0;
@@ -60,6 +101,10 @@ export function prepareSound() {
       filter.Q.value = -3;
       filter.connect(context.destination);
       waterFilter = filter;
+      // Prepare the airy accents once, away from camera and title transitions.
+      airBuffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
+      const air = airBuffer.getChannelData(0);
+      for (let i = 0; i < air.length; i++) air[i] = Math.random() * 2 - 1;
       void pullData
         .then(async (data) => {
           if (data) pullBuffer = await context.decodeAudioData(data);
