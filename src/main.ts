@@ -13,7 +13,6 @@ import { createSeaMist } from "./seaMist";
 import { createBowSpray } from "./bowSpray";
 import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
-import { createFlight } from "./flight";
 import { createPaper } from "./paper";
 import { createEnvironment } from "./environment";
 import { createTether, createSeabedDetails } from "./tether";
@@ -92,10 +91,6 @@ async function start() {
   const surface = probe.intersectObject(paper.mesh)[0];
   const tether = createTether(scene, boat, surface, env.uniforms);
   paper.fold(0);
-  const flight = createFlight(scene, boat, paper, camera, () =>
-    sound.cue("paper"),
-  );
-  let flying = false;
   const details = createSeabedDetails(scene);
   scene.add(new T.HemisphereLight(0xffe5c6, 0x679a98, 1.7));
   const sun = new T.DirectionalLight(0xffdbad, 2.7);
@@ -146,7 +141,6 @@ async function start() {
     if (s === "surface" || s === "anchored") sound.cue("arrival");
     button.hidden = button.disabled = !(s === "surface" || s === "anchored");
     if (s === "surface" || s === "anchored") {
-      button.querySelector("svg")!.style.display = "";
       const below = s === "anchored";
       button.querySelector("span")!.textContent = below
         ? "Let go"
@@ -175,19 +169,6 @@ async function start() {
     if (button.disabled) return;
     sound.click();
     keyboardAction = event.detail === 0;
-    if (stage === "drift" && !flying) {
-      flying = true;
-      flight.begin();
-      driftHeadings[headingIndex].hidden = true;
-      button.hidden = button.disabled = true;
-      canvas.dataset.stage = "canyon";
-      canvas.focus({ preventScroll: true });
-      narration.textContent =
-        "The ocean opens. The boat sails between walls of water.";
-      tether.update(time, -1, false, 0, reduced);
-      sound.cue("dive");
-      return;
-    }
     if (stage === "surface") setStage("descending", reduced ? 0.85 : 3.55);
     else if (stage === "anchored") {
       breakDelay = reduced ? 0.96 : 2.25;
@@ -310,16 +291,13 @@ async function start() {
   function unfold() {
     if (!started || returning || returned) return;
     returning = true;
-    flight.hideControls();
     canvas.dataset.stage = "unfolding";
     returnPosition.copy(boat.position);
     returnRotation.copy(boat.quaternion);
     returnScale.copy(boat.scale);
     returnFold = paper.mesh.material.uniforms.uFold.value;
     button.hidden = button.disabled = true;
-    driftHeadings.forEach((title) => {
-      title.hidden = true;
-    });
+    driftHeadings.forEach((title) => { title.hidden = true; });
     sound.returnToPortfolio();
     sound.cue("paper");
     sound.unfold(returnFold, reduced ? 0.75 : 2.7);
@@ -327,19 +305,13 @@ async function start() {
     canvas.style.cursor = "default";
   }
   canvas.tabIndex = 0;
-  canvas.setAttribute(
-    "aria-description",
-    "Click the paper boat, or press Enter here, to unfold the portfolio.",
-  );
+  canvas.setAttribute("aria-description", "Click the paper boat, or press Enter here, to unfold the portfolio.");
   canvas.addEventListener("click", (event) => {
     if (hitsBoat(event.clientX, event.clientY)) unfold();
-    else if (flying && !returning) flight.pick(boatPicker);
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!returning && !returned)
-      canvas.style.cursor = hitsBoat(event.clientX, event.clientY)
-        ? "pointer"
-        : "";
+      canvas.style.cursor = hitsBoat(event.clientX, event.clientY) ? "pointer" : "";
   });
   canvas.addEventListener("keydown", (event) => {
     if (!event.repeat && (event.key === "Enter" || event.key === " ")) {
@@ -363,17 +335,10 @@ async function start() {
       const lift = ease(0, 0.7, progress);
       const flatten = ease(0.15, 0.83, progress);
       const direction = camera.getWorldDirection(new T.Vector3());
-      const destination = camera.position
-        .clone()
-        .addScaledVector(direction, 4.6);
-      const parallel = camera.quaternion
-        .clone()
-        .multiply(
-          new T.Quaternion().setFromAxisAngle(
-            new T.Vector3(0, 0, 1),
-            Math.PI / 2,
-          ),
-        );
+      const destination = camera.position.clone().addScaledVector(direction, 4.6);
+      const parallel = camera.quaternion.clone().multiply(
+        new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), Math.PI / 2),
+      );
       boat.position.copy(returnPosition).lerp(destination, lift);
       boat.quaternion.copy(returnRotation).slerp(parallel, lift);
       const tan = Math.tan(T.MathUtils.degToRad(camera.fov * 0.5));
@@ -381,11 +346,8 @@ async function start() {
         (2 * 4.6 * tan) / paper.width,
         (2 * 4.6 * tan * camera.aspect) / paper.height,
       );
-      boat.scale
-        .copy(returnScale)
-        .lerp(new T.Vector3(cover, cover, cover), ease(0.72, 1, progress));
-      const opening = returnFold * (1 - flatten);
-      if (!flying || !flight.openingFold(opening)) paper.fold(opening);
+      boat.scale.copy(returnScale).lerp(new T.Vector3(cover, cover, cover), ease(0.72, 1, progress));
+      paper.fold(returnFold * (1 - flatten));
       boat.updateMatrixWorld(true);
       // Bring the sheet forward through the waterline without clipping its opening panels.
       camera.near = 0.07;
@@ -407,33 +369,20 @@ async function start() {
         canvas.dataset.stage = "portfolio";
         portfolio.hidden = false;
         document.querySelector<HTMLElement>("main")!.hidden = true;
-        portfolio
-          .querySelector<HTMLAnchorElement>("a")
-          ?.focus({ preventScroll: true });
-        void waitForPortfolioClick(() => {
-          sound.start();
-          sound.click();
-        }).then((image) => {
+        portfolio.querySelector<HTMLAnchorElement>("a")?.focus({ preventScroll: true });
+        void waitForPortfolioClick(() => { sound.start(); sound.click(); }).then((image) => {
           const previousPrint = paper.mesh.material.uniforms.uPrint.value;
           const nextPrint = new T.CanvasTexture(image);
           nextPrint.anisotropy = print.anisotropy;
           paper.mesh.material.uniforms.uPrint.value = nextPrint;
           previousPrint?.dispose();
-          flight.reset();
-          flying = false;
-          env.uniforms.uCanyon.value.set(0, 0, 0);
-          env.uniforms.uFlight.value = 0;
-          env.water.visible = true;
           returning = returned = false;
           returnAge = 0;
           landed = false;
           sinceImpact = 0;
           releaseElapsed = releaseWaveTime = 0;
           headingIndex = headingSince = 0;
-          driftHeadings.forEach((title) => {
-            title.hidden = true;
-            title.style.opacity = "";
-          });
+          driftHeadings.forEach((title) => { title.hidden = true; title.style.opacity = ""; });
           started = false;
           last = 0;
           document.querySelector<HTMLElement>("main")!.hidden = false;
@@ -448,64 +397,7 @@ async function start() {
     time += dt * (reduced ? 0.42 : 1);
     env.uniforms.uSkyMotion.value = reduced ? 0.15 : 1;
     const cloudTime = time * env.uniforms.uSkyMotion.value;
-    sun.intensity =
-      2.7 *
-      (0.94 +
-        0.04 * Math.sin(cloudTime * 0.083) +
-        0.02 * Math.sin(cloudTime * 0.137 + 0.8));
-    if (flying) {
-      const un = env.uniforms;
-      const state = flight.update(dt, time, reduced, cursor);
-      un.uTime.value = time;
-      un.uFlight.value = state.sky;
-      un.uCanyon.value.set(state.x, state.canyon, state.line);
-      un.uBoat.value.copy(boat.position);
-      boat.updateMatrixWorld(true);
-      un.uWorldToHull.value.copy(boat.matrixWorld).invert();
-      un.uContact.value = 1 - state.sky;
-      un.uWake.value = 0;
-      un.uImpact.value = 100;
-      un.uCut.value = camera.position.z - 0.12;
-      un.uAspect.value = camera.aspect;
-      env.water.visible = state.sky < 0.999;
-      if (env.water.visible) {
-        mirror.copy(camera, false);
-        mirror.layers.set(1);
-        const level = boat.position.y * (1 - state.sky);
-        camera.getWorldDirection(look).add(camera.position);
-        mirror.position.y = 2 * level - camera.position.y;
-        mirror.lookAt(look.x, 2 * level - look.y, look.z);
-        mirror.updateMatrixWorld();
-        un.uReflectMatrix.value.multiplyMatrices(
-          mirror.projectionMatrix,
-          mirror.matrixWorldInverse,
-        );
-        renderer.setRenderTarget(reflection);
-        renderer.render(scene, mirror);
-        renderer.setRenderTarget(null);
-      }
-      seaMist.update(dt, time, boat, 0, reduced, false);
-      bowSpray(dt, time, boat, 0, 0, reduced);
-      if (state.ready && canvas.dataset.stage !== "flight") {
-        canvas.dataset.stage = "flight";
-        sound.returnToPortfolio();
-        narration.textContent =
-          "Choose a project to fly closer and open its details.";
-      }
-      renderer.render(scene, camera);
-      return;
-    }
-    if (
-      stage === "drift" &&
-      headingIndex === driftHeadings.length - 1 &&
-      age - headingSince > 1.2 &&
-      button.hidden
-    ) {
-      button.querySelector("span")!.textContent = "Find out";
-      button.querySelector("svg")!.style.display = "none";
-      button.hidden = button.disabled = false;
-      if (keyboardAction) button.focus({ preventScroll: true });
-    }
+    sun.intensity = 2.7 * (0.94 + 0.04 * Math.sin(cloudTime * 0.083) + 0.02 * Math.sin(cloudTime * 0.137 + 0.8));
     if (stage === "intro" && age >= stageDuration) setStage("surface");
     if (stage === "descending" && age >= stageDuration) setStage("anchored");
     if (stage === "releasing" && age >= stageDuration) setStage("drift");

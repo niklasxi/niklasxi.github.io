@@ -6,17 +6,7 @@ export { seabed };
 const skyCode = `
 uniform sampler2D uSky;
 uniform vec3 uSun;
-uniform float uSkyMotion,uFlight;
-vec3 flightSky(vec3 d) {
-  float elevation=max(.035,abs(d.y));
-  vec2 q=d.xz/elevation+vec2(uTime*.035,0.);
-  float cloud=fb(q*2.)*.54+fb(q*6.3)*.30+fb(q*20.)*.16;
-  vec3 horizon=vec3(.96,.82,.70);
-  vec3 air=mix(horizon,vec3(.24,.56,.76),smoothstep(0.,.55,d.y));
-  vec3 bank=mix(vec3(.51,.66,.75),vec3(1.,.96,.84),smoothstep(.28,.72,cloud));
-  float density=d.y<0. ? smoothstep(.22,.62,cloud) : smoothstep(.54,.72,cloud)*.66;
-  return mix(air,bank,density*smoothstep(.015,.18,elevation));
-}
+uniform float uSkyMotion;
 float cloudLight() {
   float t=uTime*uSkyMotion;
   return .94+.04*sin(t*.083)+.02*sin(t*.137+.8);
@@ -34,11 +24,6 @@ vec3 sky(vec3 d) {
   vec2 warp=vec2(sin(v*13.+t*.09),sin(u*11.-t*.065))*.007;
   vec2 uv=vec2(u,v)+(drift+warp)*movable;
   vec3 c=texture2D(uSky,vec2(1.-abs(mod(uv.x,2.)-1.),clamp(uv.y,.002,.998))).rgb;
-  if(uFlight>0.) {
-    vec3 skyColor=mix(c*cloudLight(),flightSky(d),uFlight);
-    float mist=sin(3.14159*uFlight)*smoothstep(.18,.65,fb(d.xy*17.+uTime*.12));
-    return mix(skyColor,vec3(1.,.94,.84),mist*.82);
-  }
   return c*cloudLight();
 }`;
 
@@ -85,8 +70,6 @@ export function createEnvironment(
 ) {
   const uniforms = {
     uTime: { value: 0 },
-    uFlight: { value: 0 },
-    uCanyon: { value: new T.Vector3() }, // center x, wall height factor, opening light
     uSkyMotion: { value: 1 },
     uDive: { value: 0 },
     uCut: { value: 0 },
@@ -131,8 +114,8 @@ export function createEnvironment(
     uniform sampler2D uSand;
     uniform vec3 uCamera,uAnchor;
     uniform float uTime,uDive,uCut;
-    ${noiseCode}
     ${skyCode}
+    ${noiseCode}
     ${waveGLSL}
     ${causticsGLSL}
     void main(){
@@ -182,7 +165,7 @@ export function createEnvironment(
       uniforms,
       side: T.DoubleSide,
       vertexShader: `
-    uniform float uTime,uCut,uAspect,uTan; uniform vec3 uCanyon;
+    uniform float uTime,uCut,uAspect,uTan;
     uniform vec3 uCamera;
     varying vec3 vWorld;
     varying float vFromCut;
@@ -193,14 +176,12 @@ export function createEnvironment(
       float halfWidth=(uCamera.z-z)*(uTan*uAspect+0.32)+2.;
       float x=uCamera.x+(uv.x*2.-1.)*halfWidth;
       vWorld=vec3(x,heightAt(vec2(x,z),uTime),z);
-      float side=abs(x-uCanyon.x+.55*sin(z*.14));
-      vWorld.y+=uCanyon.y*smoothstep(3.3,8.3,side)*(11.+1.3*sin(z*.4+uTime));
       vFromCut=distanceFromCut;
       gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
     }`,
       fragmentShader: `
     varying vec3 vWorld; varying float vFromCut;
-    uniform vec3 uCamera,uBoat,uCanyon;
+    uniform vec3 uCamera,uBoat;
     uniform float uTime,uDive,uContact,uWake,uImpact;
     uniform vec4 uBreaches[6],uHullBounds;
     uniform vec2 uHullLevels;
@@ -208,8 +189,8 @@ export function createEnvironment(
     uniform sampler2D uHullMask;
     uniform mat4 uReflectMatrix,uViewProjection;
     uniform sampler2D uReflection,uRipples,uTransmission;
-    ${noiseCode}
     ${skyCode}
+    ${noiseCode}
     ${waveGLSL}
     vec2 fineSlope(vec2 p,float dist){
       float t=uTime;
@@ -237,7 +218,6 @@ export function createEnvironment(
       vec2 slopes=slopeAt(p.xz,uTime)+fineSlope(p.xz,dist);
       vec3 N=normalize(vec3(-slopes.x,1.,-slopes.y));
       vec3 R=reflect(-V,N); float skyVisible=smoothstep(-.13,.055,R.y); R.y=max(.002,R.y);
-      if(uCanyon.y>.001) { N=normalize(cross(dFdx(p),dFdy(p)) + vec3(-slopes.x*.08,0.,-slopes.y*.08)); R=reflect(-V,N); }
       float nv=clamp(dot(N,V),0.,1.);
       vec3 mirrorSky=sky(R);
       float fres=(.115+.79*pow(1.-nv,3.45))*mix(.13,1.,skyVisible);
@@ -248,9 +228,6 @@ export function createEnvironment(
       float disk=exp(-max(0.,1.-sunFacing)*1350.);
       float glow=exp(-max(0.,1.-sunFacing)*59.);
       col+=skyVisible*cloudLight()*(vec3(.89,.72,.42)*disk+vec3(.11,.063,.026)*glow);
-      float wall=smoothstep(3.3,8.3,abs(p.x-uCanyon.x))*uCanyon.y;
-      col=mix(col,vec3(.035,.50,.49)+mirrorSky*.17,wall*.52);
-      col+=vec3(1.,.79,.42)*uCanyon.z*exp(-abs(p.x-uCanyon.x)*2.7)*smoothstep(3.,12.,dist);
       vec2 local=p.xz-uBoat.xz;
       float nearHull=exp(-dot(local/vec2(2.1,1.05),local/vec2(2.1,1.05)) * 1.8)*uContact;
       col*=1.-nearHull*.39;
