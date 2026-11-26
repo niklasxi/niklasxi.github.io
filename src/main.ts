@@ -40,6 +40,9 @@ const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
 const driftHeadings =
   document.querySelectorAll<HTMLHeadingElement>(".drift-heading");
+const landingTitle = document.querySelector<HTMLHeadingElement>("#landing-title")!;
+const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
+const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -152,6 +155,7 @@ async function start() {
   let headingIndex = 0,
     headingSince = 0;
   let findOutShown = false;
+  let chainTitleAge = 0;
 
   // Sky flight state (reused vectors & quaternions, zero per-frame allocations).
   const transStartPos = new T.Vector3(),
@@ -219,7 +223,15 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
-    if (s === "intro") snapSplash.clear();
+    if (s === "intro") {
+      snapSplash.clear();
+      landingTitle.hidden = true;
+      landingTitle.style.opacity = "";
+      chainTitle.hidden = true;
+      chainTitle.style.opacity = "";
+      releaseTitle.hidden = true;
+      releaseTitle.style.opacity = "";
+    }
     if (s === "drift") {
       driftHeadings[0].hidden = false;
       headingIndex = 0;
@@ -227,7 +239,25 @@ async function start() {
       sound.settleOcean();
       sound.cue("title");
     }
-    if (s === "descending") sound.cue("dive");
+    if (s === "descending") {
+      sound.cue("dive");
+      landingTitle.hidden = true;
+      landingTitle.style.opacity = "";
+      chainTitle.hidden = false;
+      chainTitle.style.opacity = "";
+      chainTitleAge = 0;
+    }
+    if (s === "releasing") {
+      chainTitle.hidden = true;
+      chainTitle.style.opacity = "";
+      releaseTitle.hidden = false;
+      releaseTitle.style.opacity = "";
+    }
+    if (s === "surface") {
+      sound.storm(reduced ? 0.7 : 2.4);
+      landingTitle.hidden = false;
+      landingTitle.style.opacity = "";
+    }
     if (s === "surface" || s === "anchored") sound.cue("arrival");
     if (s === "transform") {
       airAge = 0;
@@ -610,6 +640,41 @@ async function start() {
     if (stage === "transform" && age >= stageDuration) setStage("sheet");
     if (stage === "folding" && age >= stageDuration) setStage("flight");
 
+    if (!chainTitle.hidden) {
+      if (stage === "descending" || stage === "anchored") {
+        chainTitleAge += dt;
+        const hold = reduced ? 2.4 : 5.4,
+          fade = reduced ? 0.5 : 0.9;
+        const progress = ease(hold, hold + fade, chainTitleAge);
+        chainTitle.style.opacity = String(1 - progress);
+        if (progress >= 1) chainTitle.hidden = true;
+      } else {
+        chainTitle.hidden = true;
+        chainTitle.style.opacity = "";
+      }
+    }
+
+    if (!landingTitle.hidden) {
+      if (stage !== "surface") {
+        landingTitle.hidden = true;
+        landingTitle.style.opacity = "";
+      } else {
+        const hold = reduced ? 1.8 : 3.6,
+          fade = reduced ? 0.45 : 0.8;
+        const progress = ease(hold, hold + fade, age);
+        landingTitle.style.opacity = String(1 - progress);
+        if (progress >= 1) landingTitle.hidden = true;
+      }
+    }
+
+    if (stage === "releasing" && !releaseTitle.hidden) {
+      const hold = reduced ? 1.5 : 3.1,
+        fade = reduced ? 0.45 : 0.75;
+      const progress = ease(hold, hold + fade, age);
+      releaseTitle.style.opacity = String(1 - progress);
+      if (progress >= 1) releaseTitle.hidden = true;
+    }
+
     if (stage === "drift" && headingIndex < 7 && age - headingSince >= 3.5) {
       const current = driftHeadings[headingIndex];
       const fade = reduced ? 1 : ease(3.5, 4, age - headingSince);
@@ -714,6 +779,7 @@ async function start() {
         if (justBroke) {
           releaseWaveTime = time;
           sound.release();
+          sound.calmStorm(reduced ? 1.6 : 8.5);
           atBreakX = bx;
           atBreakZ = bz;
         }
