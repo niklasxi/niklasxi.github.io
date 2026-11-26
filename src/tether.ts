@@ -146,6 +146,7 @@ export function createTether(
     tension: number,
     reduced: boolean,
   ) {
+    if (breakAge < 0) broken = false;
     chain.visible = eyelet.visible = visible;
     halves.forEach((h) => (h.visible = visible));
     if (!visible) return;

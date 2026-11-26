@@ -28,6 +28,9 @@ export function prepareSound() {
   let breakBuffer: AudioBuffer | undefined;
   let pulling: AudioBufferSourceNode | undefined;
   let foldBuffer: AudioBuffer | undefined;
+  let unfoldBuffer: AudioBuffer | undefined;
+  let splashBuffer: AudioBuffer | undefined;
+  let splashGain: GainNode | undefined;
   let nextFold = 0;
   let splash: AudioBufferSourceNode | undefined;
   let waterFilter: BiquadFilterNode | undefined;
@@ -39,6 +42,17 @@ export function prepareSound() {
 
   return {
     start() {
+      if (waterFilter && surfGain) {
+        nextFold = 0;
+        lastDepth = 0;
+        const now = waterFilter.context.currentTime;
+        waterFilter.frequency.setValueAtTime(surfaceHz, now);
+        surfGain.gain.cancelScheduledValues(now);
+        surfGain.gain.setTargetAtTime(surfaceGain, now, 0.15);
+        void (waterFilter.context as AudioContext).resume();
+        void ocean.play().catch(() => {});
+        return;
+      }
       const context = new AudioContext({ latencyHint: "interactive" });
       const filter = context.createBiquadFilter();
       filter.type = "lowpass";
@@ -63,21 +77,52 @@ export function prepareSound() {
       void ocean.play().catch(() => {});
       void foldData
         .then(async (data) => {
-          if (data) foldBuffer = await context.decodeAudioData(data);
+          if (data) {
+            foldBuffer = await context.decodeAudioData(data);
+            unfoldBuffer = context.createBuffer(foldBuffer.numberOfChannels, foldBuffer.length, foldBuffer.sampleRate);
+            for (let channel = 0; channel < foldBuffer.numberOfChannels; channel++)
+              unfoldBuffer.copyToChannel(foldBuffer.getChannelData(channel).slice().reverse(), channel);
+          }
         })
         .catch(() => {});
       void Promise.all([context.resume(), splashData])
         .then(async ([, data]) => {
           if (!data) return;
           const buffer = await context.decodeAudioData(data);
+          splashBuffer = buffer;
           const gain = context.createGain();
           gain.gain.value = 0.19;
           gain.connect(filter);
+          splashGain = gain;
           splash = context.createBufferSource();
           splash.buffer = buffer;
           splash.connect(gain);
         })
         .catch(() => {});
+    },
+    click() {
+      if (!waterFilter) return;
+      const context = waterFilter.context;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const now = context.currentTime;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(720, now);
+      oscillator.frequency.exponentialRampToValueAtTime(310, now + 0.045);
+      gain.gain.setValueAtTime(0.035, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+      oscillator.connect(gain).connect(waterFilter);
+      oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+      oscillator.start(now);
+      oscillator.stop(now + 0.07);
+    },
+    unfold(fold: number, duration: number) {
+      if (!unfoldBuffer || !waterFilter || fold <= 0) return;
+      const source = waterFilter.context.createBufferSource();
+      source.buffer = unfoldBuffer;
+      source.playbackRate.value = unfoldBuffer.duration * fold / (duration * 0.68);
+      source.connect(waterFilter);
+      source.start(waterFilter.context.currentTime + duration * 0.15, (1 - fold) * unfoldBuffer.duration, fold * unfoldBuffer.duration);
     },
     fold(progress: number, duration: number) {
       if (
@@ -143,6 +188,11 @@ export function prepareSound() {
       surfGain.gain.setTargetAtTime(0, now, 0.3);
     },
     land() {
+      if (!splash && splashBuffer && splashGain && waterFilter) {
+        splash = waterFilter.context.createBufferSource();
+        splash.buffer = splashBuffer;
+        splash.connect(splashGain);
+      }
       // The recording has roughly 130 ms of lead-in before the impact.
       splash?.start(0, 0.12);
       splash = undefined;

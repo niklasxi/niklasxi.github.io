@@ -161,6 +161,7 @@ async function start() {
   }
   function activate(event: MouseEvent) {
     if (button.disabled) return;
+    sound.click();
     keyboardAction = event.detail === 0;
     if (stage === "surface") setStage("descending", reduced ? 0.85 : 3.55);
     else if (stage === "anchored") {
@@ -286,6 +287,7 @@ async function start() {
     button.hidden = button.disabled = true;
     driftHeadings.forEach((title) => { title.hidden = true; });
     sound.returnToPortfolio();
+    sound.unfold(returnFold, reduced ? 0.75 : 2.7);
     narration.textContent = "The boat unfolds into Niklas’s portfolio.";
     canvas.style.cursor = "default";
   }
@@ -355,6 +357,26 @@ async function start() {
         portfolio.hidden = false;
         document.querySelector<HTMLElement>("main")!.hidden = true;
         portfolio.querySelector<HTMLAnchorElement>("a")?.focus({ preventScroll: true });
+        void waitForPortfolioClick(() => { sound.start(); sound.click(); }).then((image) => {
+          const previousPrint = paper.mesh.material.uniforms.uPrint.value;
+          const nextPrint = new T.CanvasTexture(image);
+          nextPrint.anisotropy = print.anisotropy;
+          paper.mesh.material.uniforms.uPrint.value = nextPrint;
+          previousPrint?.dispose();
+          returning = returned = false;
+          returnAge = 0;
+          landed = false;
+          sinceImpact = 0;
+          releaseElapsed = releaseWaveTime = 0;
+          headingIndex = headingSince = 0;
+          driftHeadings.forEach((title) => { title.hidden = true; title.style.opacity = ""; });
+          started = false;
+          last = 0;
+          document.querySelector<HTMLElement>("main")!.hidden = false;
+          resize();
+          setStage("intro", (reduced ? 3 : 4.5) + pullDuration);
+          requestAnimationFrame(frame);
+        });
       }
       return;
     }
