@@ -401,10 +401,10 @@ async function start() {
     if (
       stage === "drift" &&
       headingIndex < driftHeadings.length - 1 &&
-      age - headingSince >= 10
+      age - headingSince >= 7
     ) {
       const current = driftHeadings[headingIndex];
-      const fade = reduced ? 1 : ease(10, 10.65, age - headingSince);
+      const fade = reduced ? 1 : ease(7, 7.5, age - headingSince);
       current.style.opacity = String(1 - fade);
       if (fade === 1) {
         current.hidden = true;
