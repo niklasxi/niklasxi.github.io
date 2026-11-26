@@ -340,7 +340,7 @@ async function start() {
       "last-light": "What if the light just went out?",
       blackout: "The sunset cuts to television static.",
       space: "The picture returns on a television floating in deep space. The plane flies toward sunset on its screen as the television falls into a black hole.",
-      end: "When does it end?",
+      end: "And humanity just goes down?",
     };
     canvas.setAttribute("aria-label", descriptions[s]);
     if (s !== "intro") narration.textContent = descriptions[s];
