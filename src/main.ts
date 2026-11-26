@@ -395,6 +395,9 @@ async function start() {
     }
     if (started) age += dt;
     time += dt * (reduced ? 0.42 : 1);
+    env.uniforms.uSkyMotion.value = reduced ? 0.15 : 1;
+    const cloudTime = time * env.uniforms.uSkyMotion.value;
+    sun.intensity = 2.7 * (0.94 + 0.04 * Math.sin(cloudTime * 0.083) + 0.02 * Math.sin(cloudTime * 0.137 + 0.8));
     if (stage === "intro" && age >= stageDuration) setStage("surface");
     if (stage === "descending" && age >= stageDuration) setStage("anchored");
     if (stage === "releasing" && age >= stageDuration) setStage("drift");

@@ -6,12 +6,25 @@ export { seabed };
 const skyCode = `
 uniform sampler2D uSky;
 uniform vec3 uSun;
+uniform float uSkyMotion;
+float cloudLight() {
+  float t=uTime*uSkyMotion;
+  return .94+.04*sin(t*.083)+.02*sin(t*.137+.8);
+}
 vec3 sky(vec3 d) {
   float lon=atan(d.x,-d.z);
   float u=.362+(lon-atan(uSun.x,-uSun.z))/2.1;
   float v=clamp(asin(clamp(d.y,-1.,1.))/.68,0.002,.998);
-  vec3 c=texture2D(uSky,vec2(1.-abs(mod(u,2.)-1.),v)).rgb;
-  return c;
+  // The photograph includes the sun. Keep its disk and the horizon fixed
+  // while the higher clouds travel and gently deform.
+  float sunDistance=length(d-uSun);
+  float movable=smoothstep(.06,.23,sunDistance)*smoothstep(.015,.22,v);
+  float t=uTime*uSkyMotion;
+  vec2 drift=vec2(t*.0014,0.);
+  vec2 warp=vec2(sin(v*13.+t*.09),sin(u*11.-t*.065))*.007;
+  vec2 uv=vec2(u,v)+(drift+warp)*movable;
+  vec3 c=texture2D(uSky,vec2(1.-abs(mod(uv.x,2.)-1.),clamp(uv.y,.002,.998))).rgb;
+  return c*cloudLight();
 }`;
 
 export const causticsGLSL = `
@@ -57,6 +70,7 @@ export function createEnvironment(
 ) {
   const uniforms = {
     uTime: { value: 0 },
+    uSkyMotion: { value: 1 },
     uDive: { value: 0 },
     uCut: { value: 0 },
     uCamera: { value: camera.position },
@@ -213,7 +227,7 @@ export function createEnvironment(
       float sunFacing=clamp(dot(R,uSun),0.,1.);
       float disk=exp(-max(0.,1.-sunFacing)*1350.);
       float glow=exp(-max(0.,1.-sunFacing)*59.);
-      col+=skyVisible*(vec3(.89,.72,.42)*disk+vec3(.11,.063,.026)*glow);
+      col+=skyVisible*cloudLight()*(vec3(.89,.72,.42)*disk+vec3(.11,.063,.026)*glow);
       vec2 local=p.xz-uBoat.xz;
       float nearHull=exp(-dot(local/vec2(2.1,1.05),local/vec2(2.1,1.05)) * 1.8)*uContact;
       col*=1.-nearHull*.39;
