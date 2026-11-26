@@ -76,7 +76,14 @@ export async function createDolphins(
     swell: number,
     reduced: boolean,
     bufferHeight: number,
+    active = true,
   ) => {
+    if (!active) {
+      for (const dolphin of pod) dolphin.mesh.visible = false;
+      splashes.clear();
+      breath.update(10, bufferHeight);
+      return;
+    }
     elapsed += dt;
     const pass = Math.floor(elapsed / 14);
     const age = elapsed % 14;

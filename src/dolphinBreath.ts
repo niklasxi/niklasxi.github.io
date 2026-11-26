@@ -11,7 +11,7 @@ export function createDolphinBreath(scene: T.Scene) {
     strength: { value: 1 },
   };
   const plume = new T.Points(
-    spraySeeds(42),
+    spraySeeds(96),
     new T.ShaderMaterial({
       uniforms,
       transparent: true,
@@ -20,19 +20,27 @@ export function createDolphinBreath(scene: T.Scene) {
       varying float opacity,seed;
       void main(){
         seed=position.z;
-        float emit=position.y*.11, t=max(0.,age-emit), a=position.x*6.28318;
-        float jet=(1.-exp(-t*4.2))*(.79+.49*seed)*strength;
-        vec3 p=origin+velocity*(emit+.085*(1.-exp(-t*9.)))+up*jet;
-        p+=vec3(cos(a),.1,sin(a))*(.02+.45*t)*strength + vec3(.54,.24,-.1)*t;
+        float emit=position.y*.12, t=max(0.,age-emit), a=position.x*6.28318;
+        float jet=(1.-exp(-t*4.5))*(.75+.52*seed)*strength;
+        vec3 p=origin+velocity*(emit+.08*(1.-exp(-t*9.)))+up*jet;
+        p+=vec3(cos(a),.12,sin(a))*(.015+.36*t)*strength + vec3(.58,.22,-.08)*t;
         vec4 eye=viewMatrix*vec4(p,1.);
         gl_Position=projectionMatrix*eye;
-        gl_PointSize=clamp(pixels*(.13+.49*t)*strength/-eye.z,1.,48.);
-        opacity=smoothstep(0.,.05,t)*(1.-smoothstep(.13,.64,t))*.20;
+        gl_PointSize=clamp(pixels*(.07+.34*t)*strength/max(.4,-eye.z),1.,28.);
+        opacity=smoothstep(0.,.04,t)*(1.-smoothstep(.12,.62,t))*.13;
       }`,
       fragmentShader: `varying float opacity,seed;
-      void main(){vec2 q=(gl_PointCoord-.5)*2.;
-        float edge=length(q)+.08*sin(7.*q.x+seed*12.)*sin(6.*q.y);
-        gl_FragColor=vec4(.94,.92,.84,opacity*(1.-smoothstep(.14,1.,edge)));
+      float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+      float noise(vec2 p){
+        vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+        return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);
+      }
+      void main(){
+        vec2 q=(gl_PointCoord-.5)*2.;
+        float n=noise(q*2.4+vec2(seed*19.,seed*7.));
+        float edge=length(q)+(n-.5)*.45;
+        float a=opacity*(1.-smoothstep(.08,.95,edge))*(.65+.35*n);
+        gl_FragColor=vec4(.95,.94,.89,a);
       }`,
     }),
   );

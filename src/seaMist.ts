@@ -1,7 +1,7 @@
 import * as T from "three";
 import { wave, waveGLSL } from "./waves";
 
-export function createSeaMist(scene: T.Scene) {
+export function createSeaMist(scene: T.Scene, tide: T.IUniform<number>) {
   const capacity = 112;
   const plane = new T.PlaneGeometry();
   const geometry = new T.InstancedBufferGeometry();
@@ -31,6 +31,7 @@ export function createSeaMist(scene: T.Scene) {
       density: { value: 1 },
       uTime: { value: 0 },
       uSwell: { value: 1 },
+      uTide: tide,
     },
     vertexShader: `
       attribute vec4 launch,gust;
@@ -58,12 +59,18 @@ export function createSeaMist(scene: T.Scene) {
         vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
         return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);
       }
+      float fbm(vec2 p){
+        return .56*noise(p)+.29*noise(p*2.13+vec2(4.2,1.7))+.15*noise(p*4.51+vec2(1.9,6.3));
+      }
       void main(){
         vec2 p=patchUV*2.-1.;
-        vec2 q=p*2.6+vec2(seed*31.-age*.42,age*.34);
-        float vapor=.65*noise(q)+.35*noise(q*2.2);
-        float soft=1.-smoothstep(.16,.97,length(p)+(vapor-.5)*.43);
-        gl_FragColor=vec4(mix(vec3(.63,.74,.75),vec3(.91,.90,.80),vapor),soft*vapor*fade*density*.44);
+        vec2 q=p*vec2(1.25,3.4)+vec2(seed*31.-age*.58,age*.28);
+        float vapor=fbm(q);
+        float wisp=smoothstep(.34,.82,vapor);
+        float soft=1.-smoothstep(.12,.92,length(p*vec2(.95,1.15))+(vapor-.5)*.52);
+        vec3 shadowMist=vec3(.56,.68,.71);
+        vec3 litMist=vec3(.96,.93,.85);
+        gl_FragColor=vec4(mix(shadowMist,litMist,vapor),soft*wisp*fade*density*.24);
       }`,
   });
   const mist = new T.Mesh(geometry, material);
