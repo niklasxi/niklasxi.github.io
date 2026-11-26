@@ -82,6 +82,12 @@ export function prepareSound() {
 
   return {
     cue,
+    settleOcean() {
+      if (!surfGain) return;
+      const now = surfGain.context.currentTime;
+      surfGain.gain.cancelScheduledValues(now);
+      surfGain.gain.setTargetAtTime(1.45, now, 1.2);
+    },
     start() {
       if (waterFilter && surfGain) {
         nextFold = 0;

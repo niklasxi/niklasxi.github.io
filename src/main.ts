@@ -134,6 +134,7 @@ async function start() {
     canvas.dataset.stage = s;
     if (s === "drift") {
       driftHeadings[0].hidden = false;
+      sound.settleOcean();
       sound.cue("title");
     }
     if (s === "descending") sound.cue("dive");
