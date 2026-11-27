@@ -80,7 +80,7 @@ async function start() {
   const [[sky, storm, ripples, sand, grain, deskTexture], television, renderCrane] = await Promise.all([
     landscape,
     loadTelevision(),
-    loadCrane(landscape),
+    loadCrane(landscape, atlasReady),
     newspaper.decode(),
     reversePage.decode(),
   ]);
@@ -450,6 +450,9 @@ async function start() {
       killAt = age;
       button.disabled = button.hidden = true;
       narration.textContent = "The crane crumples and falls into the sea.";
+    } else if (stage === "crane") {
+      revealNews = true;
+      button.disabled = true;
     } else if (stage === "tv-float") {
       setStage("tv-fall");
     }
@@ -613,7 +616,10 @@ async function start() {
     }
   });
 
+  let revealNews = false;
+
   function showPortfolio() {
+    revealNews = false;
     const edition = stage === "crane" ? revealFinalEdition(canvas, new Date()) : undefined;
     ending?.dispose();
     ending = undefined;
@@ -760,8 +766,15 @@ async function start() {
         const fadeOut = ease(3.7, 4.5, shot);
         craneQuestion.style.opacity = String(fadeIn * (1 - fadeOut));
       }
-      if (done) { sound.returnToPortfolio(); canvas.style.filter = ""; showPortfolio(); }
-      else if (shot > 6.3) canvas.style.filter = "grayscale("+ease(6.3,7.35,shot)+")";
+      if (done && revealNews) {
+        sound.returnToPortfolio();
+        showPortfolio();
+      } else if (done && button.hidden) {
+        button.querySelector("span")!.textContent = "Reveal news";
+        button.hidden = button.disabled = false;
+        narration.textContent = "The camera holds at the stormy waterline. Reveal news to see the final edition.";
+        if (keyboardAction) button.focus({preventScroll:true});
+      }
       return;
     }
     if (ending && !startingTelevision) {

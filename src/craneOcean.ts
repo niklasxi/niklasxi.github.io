@@ -2,10 +2,11 @@ import * as T from "three";
 import { createEnvironment } from "./environment";
 import { createTether, createSeabedDetails } from "./tether";
 import { createSplash } from "./splash";
+import { createJellyfish } from "./jellyfish";
 import { ease } from "./waves";
 
 
-export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, ripples, sand]: T.Texture[]) {
+export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, ripples, sand]: T.Texture[], atlas: T.Texture | null) {
   const world = new T.Scene();
   const mirror = new T.PerspectiveCamera();
   const reflected = new T.WebGLRenderTarget(480, 320);
@@ -18,6 +19,7 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
   tether.update(0,10,true,0,false);
   tether.attachedHalf.visible=false;
   const details=createSeabedDetails(world);
+  const jellyfish = atlas && createJellyfish(world, atlas);
   const splash=createSplash(world);
   const impact=tether.looseLink.position.clone().add(new T.Vector3(-.5,0,.25)).setY(0);
   const bubbles=new T.InstancedMesh(new T.SphereGeometry(1,8,6),
@@ -26,7 +28,7 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
   world.add(bubbles);
   const dummy=new T.Object3D();
   const lensEntry=new T.Vector3();
-  let crossed=false, crossingTime=0, bedVisible=true;
+  let crossed=false, crossingTime=0;
   return {world, impact, reflect(renderer: T.WebGLRenderer, scene: T.Scene, focus: T.Vector3, surfaceY: number) {
     mirror.copy(camera, false);
     mirror.layers.set(1);
@@ -41,33 +43,32 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
     renderer.render(scene, mirror);
     renderer.setRenderTarget(null);
     scene.background = background;
-  }, update(shot:number, sinceImpact:number, reduced:boolean, height:number, wet:number, surfaceY:number){
+  }, update(shot:number, sinceImpact:number, reduced:boolean, height:number, wet:number, surfaceY:number, pullback:number){
     world.visible=shot>.22;
     camera.updateMatrixWorld();
     un.uTime.value = shot;
-    un.uSwell.value = reduced ? .39 : 1;
+    un.uSwell.value = (reduced ? .39 : 1) * (1 - pullback);
     un.uExposure.value = ease(.22, .95, shot);
     un.uAspect.value = camera.aspect;
     un.uTan.value = Math.tan(T.MathUtils.degToRad(camera.fov / 2));
     un.uViewProjection.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    un.uCut.value = camera.position.z - .26;
+    un.uCut.value = camera.position.z - T.MathUtils.lerp(.26, camera.position.z * .65, pullback);
     un.uDive.value = 1;
     un.uReflectionStrength.value = sinceImpact < 0 ? 1 : 0;
     un.uBoat.value.copy(impact);
     un.uImpact.value = sinceImpact;
-    tether.anchor.visible=wet>.02;
-    if (bedVisible!==tether.anchor.visible) {
-      bedVisible=tether.anchor.visible;
-      tether.update(shot,10,bedVisible,0,reduced);
-      tether.attachedHalf.visible=false;
-    }
     if (sinceImpact<0) crossed=false;
     if (!crossed && wet>.02) {
       lensEntry.copy(camera.position);
       crossed=true;
       crossingTime=shot;
     }
-    details.update(wet,shot);
+    const seabedVisibility = Math.max(wet, pullback);
+    tether.anchor.visible = seabedVisibility > .02;
+    tether.chain.visible = pullback < .5 && seabedVisibility > .02;
+    tether.looseLink.visible = tether.chain.visible;
+    details.update(seabedVisibility,shot);
+    jellyfish?.(pullback, shot);
     impact.y = surfaceY;
     splash(sinceImpact,impact,reduced,height);
     bubbles.visible=sinceImpact>=0 && sinceImpact<3;

@@ -8,7 +8,7 @@ import { createFlexiblePaper, createPaperSprings } from "./paperFlex";
 import craneUrl from "../3d_origami_crane.glb?url";
 
 
-export async function loadCrane(landscape: Promise<T.Texture[]>) {
+export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<T.Texture | null>) {
   const { scene: model } = await new GLTFLoader().loadAsync(craneUrl);
   model.updateMatrixWorld(true);
   const mesh = model.getObjectByName("Object_3");
@@ -43,7 +43,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>) {
   key.position.set(-3, 5, 4);
   scene.add(bird, fill, key);
   const camera = new T.PerspectiveCamera(35, 1, 0.07, 2600);
-  const ocean = createCraneOcean(camera, await landscape);
+  const ocean = createCraneOcean(camera, await landscape, await atlas);
   const springs = createPaperSprings();
   const flex = createFlexiblePaper(geometry, 5);
   const ball = new T.Mesh(geometry, paper.clone());
@@ -66,6 +66,8 @@ export async function loadCrane(landscape: Promise<T.Texture[]>) {
   const oceanOffset = new T.Vector3();
   scene.add(ocean.world, ball);
   const landingEye = new T.Vector3(), focus = new T.Vector3(), target = new T.Vector3();
+  const wideEye = new T.Vector3();
+  const wideFocus = new T.Vector3();
   const deep = new T.Color(0x245759), black = new T.Color(0);
   const fog = new T.FogExp2(deep,.08);
   let pathOffset = 0;
@@ -253,6 +255,13 @@ export async function loadCrane(landscape: Promise<T.Texture[]>) {
       camera.position.sub(oceanOffset);
       ball.position.sub(oceanOffset);
       focus.sub(oceanOffset);
+      const pullback = ease(6.2, reduced ? 7.35 : 9.65, shot);
+      const wideDistance = Math.max(11.8, 11.0 / aspect);
+      wideEye.set(-.3, .32, wideDistance);
+      wideFocus.set(0, -.78 * wideDistance / 11.8, 0);
+      camera.position.lerp(wideEye, pullback);
+      focus.lerp(wideFocus, pullback);
+      camera.lookAt(focus);
       const surfaceY = wave(ocean.impact.x, ocean.impact.z, shot, swell);
       const wet = ease(-.06,.32,wave(camera.position.x,camera.position.z,shot,swell)-camera.position.y);
       fog.color.copy(deep);
@@ -260,11 +269,11 @@ export async function loadCrane(landscape: Promise<T.Texture[]>) {
       scene.fog=fog;
       scene.background = fog.color.copy(black).lerp(deep,wet);
       if (entry < 0) ocean.reflect(renderer,scene,focus,surfaceY);
-      ocean.update(shot,entry,reduced,renderer.domElement.height,wet,surfaceY);
+      ocean.update(shot,entry,reduced,renderer.domElement.height,wet,surfaceY,pullback);
       const cues = [0,hitTime];
       while (cueIndex < cues.length && shot >= cues[cueIndex]) foley(cueIndex++);
     }
     renderer.render(scene, camera);
-    return shot >= 7.9;
+    return shot >= (reduced ? 7.35 : 9.65);
   };
 }

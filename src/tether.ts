@@ -249,7 +249,7 @@ export function createTether(
     halves[1].position.x -= 0.077 * crack;
     halves[1].rotation.set(0.06, 0.24, -1.02 * crack - 0.46 * recoil);
   }
-  return { update, anchor, attachment: top, looseLink: halves[1], attachedHalf: halves[0] };
+  return { update, anchor, chain, attachment: top, looseLink: halves[1], attachedHalf: halves[0] };
 }
 
 export function createSeabedDetails(scene: T.Scene) {
