@@ -63,6 +63,7 @@ export function createDolphinBreath(scene: T.Scene) {
       uniforms.velocity.value.set(-speed, climb, -0.4);
       uniforms.strength.value = reduced ? 0.76 : 1;
       uniforms.age.value = 0;
+      return uniforms.origin.value;
     },
     update(dt: number, height: number) {
       uniforms.age.value += dt;

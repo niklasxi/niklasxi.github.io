@@ -1,5 +1,15 @@
-import { MathUtils, Vector3 } from "three";
+import { MathUtils, Quaternion, Vector3 } from "three";
 import { ease, wave } from "./waves";
+import { createSheetAir } from "./sheetAir";
+
+// Shared by the folding geometry and its paper sound cues.
+export const planeCreases = {
+  corners: [0, 0.30],
+  nose: [0.30, 0.62],
+  keel: [0.62, 0.80],
+  nearWing: [0.74, 0.92],
+  farWing: [0.83, 1],
+} as const;
 
 export function flightTiming(reduced: boolean) {
   const launchEnd = reduced ? 0.45 : 0.78;
@@ -10,8 +20,9 @@ export function flightTiming(reduced: boolean) {
 
 // Translation, pitch and roll respond to the same moving air. Resolve loads
 // in short steps so a slow rendered frame cannot kick the sheet into a spin.
-export function createPaperFlight() {
+export function createPaperFlight(flatPose: Quaternion) {
   const position = new Vector3(), velocity = new Vector3();
+  const sheet = createSheetAir();
   let roll = 0, pitch = 0, rollRate = 0, pitchRate = 0;
   let gust = 0, crosswind = 0;
   function reset(start: Vector3, entrySpeed: number) {
@@ -58,16 +69,29 @@ export function createPaperFlight() {
       const liftHeight = (reduced ? 4.8 : 7.2) + motion * gust * 0.48;
       const updraft = Math.max(0, 8.8 + (liftHeight - height) * 1.45) * pressure;
       const openingArea = ease(timing.launchEnd, liftReady, t);
-      const sheetLift = openingArea * (1 - fold) * updraft * (1 - 0.22 * Math.abs(Math.sin(roll)));
+      const free = reduced ? 0 : ease(timing.openEnd - 0.32, timing.openEnd + 0.40, t) * (1 - fold);
+      // The broad updraft keeps the shot above the waves. Local pressure
+      // changes its path and spills lift when the face turns edge-on.
+      const sheetLift = openingArea * (1 - fold) * updraft
+        * (1 - 0.22 * Math.abs(Math.sin(roll)) - 0.29 * free);
+      let crestLift = 0;
+      if (free > 0) {
+        sheet.step(h, t, velocity, windX, windZ, updraft, free);
+        velocity.addScaledVector(sheet.force, h * free * 0.63);
+        // Wind banking off the swell catches the low edge first. Use the
+        // rotating sheet's clearance so the paper can dip without submerging.
+        const edgeClearance = height - sheet.verticalExtent;
+        crestLift = 23 * free * ease(3.4, 0.15, edgeClearance) * (1 + 0.15 * Math.max(0, -velocity.y));
+      }
       const cruiseHeight = (reduced ? 5.4 : 8) + motion * 0.42 * Math.sin(t * 0.43);
       const wingLift = fold * (9.81 + 1.7 * (cruiseHeight - position.y));
       const dragArea = velocity.y < 0 ? openingArea * (1 - fold) : loose;
       const damping = 0.16 + dragArea * 1.8 + fold * 2.3;
       const waterSupport = (1 - spread) * Math.max(0, 1 - height) * 8;
-      velocity.y += (kick + waterSupport + sheetLift + wingLift - 9.81 - damping * velocity.y) * h;
+      velocity.y += (kick + waterSupport + sheetLift + crestLift + wingLift - 9.81 - damping * velocity.y) * h;
       position.addScaledVector(velocity, h);
     }
     return { roll, pitch, rollRate, gust, crosswind };
   }
-  return { position, velocity, reset, step };
+  return { position, velocity, sheet, reset, step };
 }

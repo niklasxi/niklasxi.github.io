@@ -1,13 +1,60 @@
 import * as T from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import televisionUrl from "./assets/television.glb?url";
+import televisionUrl from "./assets/crt-tv.glb?url";
 
-// The GLB retains the cabinet, controls, badge, grille and curved glass from
-// FBX.zip. Glass UVs project the picture onto the tube's physical front face.
+// CRT TV by Timothy Ahene (Sketchfab Standard license). The screen mesh is
+// driven by a live render of the ocean scene.
 export async function loadTelevision() {
   const { scene: object } = await new GLTFLoader().loadAsync(televisionUrl);
-  const glass = object.getObjectByName("Glass");
-  if (!(glass instanceof T.Mesh)) throw new Error("Television model is missing its CRT glass");
+  let glass: T.Mesh | undefined;
+  object.traverse((child) => {
+    if (glass || !(child instanceof T.Mesh)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    if (materials.some((material) => material.name === "TVScreen")) glass = child;
+  });
+  if (!glass) {
+    const screenNode = object.getObjectByName("Screen");
+    screenNode?.traverse((child) => {
+      if (!glass && child instanceof T.Mesh) glass = child;
+    });
+  }
+  if (!glass) throw new Error("Television model is missing its screen");
+  const screen = glass;
+
+  // This Sketchfab model faces -Z and is authored at a tiny scale. Turn its
+  // screen toward +Z and normalize the cabinet to the old prop's footprint.
+  object.rotation.y = Math.PI;
+  object.updateMatrixWorld(true);
+  const size = new T.Box3().setFromObject(object).getSize(new T.Vector3());
+  object.scale.setScalar(3 / size.x);
+  object.updateMatrixWorld(true);
+  const screenBox = new T.Box3().setFromObject(screen);
+  const screenSize = screenBox.getSize(new T.Vector3());
+  object.position.copy(screenBox.getCenter(new T.Vector3())).multiplyScalar(-1);
+  object.updateMatrixWorld(true);
+
+  // The source UV island does not fill the texture. Normalize it so the live
+  // feed uses the whole CRT face.
+  const uv = screen.geometry.getAttribute("uv") as T.BufferAttribute | undefined;
+  if (uv) {
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    for (let i = 0; i < uv.count; i++) {
+      minU = Math.min(minU, uv.getX(i));
+      maxU = Math.max(maxU, uv.getX(i));
+      minV = Math.min(minV, uv.getY(i));
+      maxV = Math.max(maxV, uv.getY(i));
+    }
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i,
+        (uv.getX(i) - minU) / (maxU - minU),
+        (uv.getY(i) - minV) / (maxV - minV));
+    }
+    uv.needsUpdate = true;
+  }
+
+  const root = new T.Group();
+  root.add(object);
+
   const uniforms = {
     uSignal: { value: null as T.Texture | null },
     uTime: { value: 0 },
@@ -61,16 +108,12 @@ export async function loadTelevision() {
       }
     `,
   });
-  const original = glass.material;
-  glass.material = tube;
+  const original = screen.material;
+  screen.material = tube;
   for (const mat of Array.isArray(original) ? original : [original]) mat.dispose();
-  glass.geometry.computeBoundingBox();
-  const bounds: T.Box3 = glass.geometry.boundingBox!;
-  const dim = bounds.getSize(new T.Vector3());
-  const screenCenter = bounds.getCenter(new T.Vector3());
-  screenCenter.z = bounds.max.z;
+  const screenCenter = new T.Vector3();
   return {
-    object, screenCenter, screenWidth: dim.x, screenHeight: dim.y,
+    object: root, screenCenter, screenWidth: screenSize.x, screenHeight: screenSize.y,
     setSignal(texture: T.Texture, time: number, staticAmount: number, reduced: boolean) {
       uniforms.uSignal.value = texture;
       uniforms.uTime.value = time;

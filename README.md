@@ -1,6 +1,6 @@
 # A Paper Ocean
 
-A fullscreen WebGL experience in which Niklas’s portfolio folds into a tethered paper boat.
+A fullscreen WebGL story about a future where human attention is bought and sold. A fictional newspaper folds into a tethered paper boat.
 
 ## Run locally
 
@@ -9,19 +9,19 @@ npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite. Move the pointer to shift the viewpoint. Scroll or read the portfolio, then click anywhere or activate a link with Enter. The camera pulls back from the page and the printed sheet folds and drops into the water. Choose **Look beneath** to follow the chain to the anchor, then **Let go** to watch the boat draw the chain tight and snap the bow link. The camera follows the boat through larger swells as it leaves a foamy wake. The controls also accept Tab followed by Enter or Space. Choose **Find out**, then **Fold into a plane** to fly toward the sunset. Static interrupts the flight. The camera pulls back from the picture tube, revealing a television that drifts into a black hole. **Return to portfolio** lets you start again.
+Open the local address printed by Vite. Move the pointer to shift the viewpoint. Use **Turn newspaper** to see either side. Click the paper or focus it and press Enter to lift it from the desk. The camera pulls back as the printed sheet folds and drops into the water. Choose **Look beneath** to follow the chain to the anchor, then **Let go** to watch the boat draw the chain tight and snap the bow link. The camera follows the boat through larger swells as it leaves a foamy wake. The controls also accept Tab followed by Enter or Space. Choose **Find out** to release the loose sheet. Gusts can turn it over as it rides the updraft. Choose **Fold into a plane** to fly toward the sunset. A snap cuts the flight to black. After a pause, television static fills the screen. The camera pulls back from the picture tube, revealing a television drifting in space. Choose **End it** to send the set into the black hole. The camera pulls back from the last frame to reveal it as a photograph in the next edition. The final heartbeat uses the UTC time when the ending finished.
 
 The scene requires WebGL 2. The folding sequence follows the supplied recording through alternate triangle and diamond shapes. The rectangular-sheet construction also uses the [NRICH folding guide](https://nrich.maths.org/making-maths-boat-folding). It honors the system's reduced-motion setting and pauses its clock while the tab is hidden. To type-check and build the production version, run `npm run build`.
 
 ## Scene assets
 
-The supplied FBX television is bundled as a GLB. Its curved screen receives a live render of the plane and ocean at up to 24 frames per second. The black-hole shader adapts Jonás Javier Encarnación’s method for bending rays around a Schwarzschild black hole and shading a rotating accretion disk. It caches the ray paths and samples a sparse star field with distant galaxies drawn from the supplied reference. [Black Hole Shader in Three.js](https://jonasjavier.dev/en/blog/black-hole-three-js-shader-tutorial#the-full-file)
+The [CRT TV by Timothy Ahene](https://sketchfab.com/3d-models/crt-tv-9ba4baa106e64319a0b540cf0af5aa9e) is bundled as a GLB under the [Sketchfab Standard License](https://sketchfab.com/licenses). Its screen receives a live render of the plane and ocean at up to 24 frames per second. The black-hole shader adapts Jonás Javier Encarnación’s method for bending rays around a Schwarzschild black hole and shading a rotating accretion disk. It caches the ray paths and samples a sparse star field with distant galaxies drawn from the supplied reference. [Black Hole Shader in Three.js](https://jonasjavier.dev/en/blog/black-hole-three-js-shader-tutorial#the-full-file)
 
-The first portfolio click starts the looping surf. The boat’s first contact with the water triggers a separate splash, and the storm ambience fades in as the folded boat settles beneath the low clouds. All recordings are bundled locally. [Ocean Waves by AudiovisuaisEU](https://pixabay.com/sound-effects/nature-ocean-waves-250310/) · [Water Splash 02 by Universfield](https://pixabay.com/sound-effects/nature-water-splash-02-352021/) · [Dry Thunder by DRAGON-STUDIO](https://pixabay.com/sound-effects/nature-dry-thunder-364468)
+The first interaction starts the original Web Audio score. The opening score swells with the recorded thunder, and wider harmonies enter as the sky clears. The snap cuts the score before the TV static. Clicking the newspaper also starts the looping surf. The boat’s first contact with the water triggers a separate splash, and the storm ambience rolls in as the newspaper folds beneath the low clouds. All recordings are bundled locally. [Ocean Waves by AudiovisuaisEU](https://pixabay.com/sound-effects/nature-ocean-waves-250310/) · [Water Splash 02 by Universfield](https://pixabay.com/sound-effects/nature-water-splash-02-352021/) · [Dry Thunder by DRAGON-STUDIO](https://pixabay.com/sound-effects/nature-dry-thunder-364468)
 
-The folding animation uses eight trimmed and accelerated excerpts from FunWithSound’s paper recording. Each excerpt follows a crease in the animation. [Paper Fold on Pixabay](https://pixabay.com/sound-effects/household-paper-fold-31416/)
+The boat fold and the plane’s five folding motions use trimmed excerpts from FunWithSound’s paper recording. The boat opening uses the same recording in reverse. [Paper Fold on Pixabay](https://pixabay.com/sound-effects/household-paper-fold-31416/)
 
-The opening is a live HTML portfolio. At activation its measured layout is painted onto a local canvas texture shared by every folded panel. The boat, anchor, individual links, swells, reflections, and moving caustics are rendered live. The small-wave slope texture in `src/assets/capillary-waves.webp` is procedural.
+The opening displays The Daily Chronicle on a photographed-style walnut desk generated with ImageGen. The lamplight and the lifting sheet’s shadow are rendered live. The Daily Chronicle front page stays on the front of the sheet, and The Last Offline District is printed on the back. Both page textures have the same aspect ratio as the unfolded paper. The boat, anchor, individual links, swells, reflections, and moving caustics are rendered live. The dolphin exhales, quick inhales, and flight wind are synthesized with Web Audio and timed to the visible breaths and moving air. The small-wave slope texture in `src/assets/capillary-waves.webp` is procedural.
 
 The two environmental textures below were created with the built-in ImageGen tool. The sky was cropped to the horizon and color graded. The seabed was downsampled for local playback.
 
@@ -41,7 +41,7 @@ Seamless photorealistic top-down square albedo texture of an actual shallow coas
 
 The chain’s tension, snap, and recoil use edited excerpts of nettimato’s recording. [Chain on Pixabay](https://pixabay.com/sound-effects/film-special-effects-chain-6073/)
 
-The jellyfish use a transparent 64-frame swim cycle rendered from the original Aurelia bell, oral arms, tentacles, materials, and GPU simulation in Niklas’s portfolio. Four specimens share the animation at different phases and depths in the ocean’s WebGL scene. [Portfolio Space Jellyfish](https://github.com/niklasxi/portfolio-space-jellyfish) · [Aurelia license](public/aurelia-license.txt)
+The jellyfish use a transparent 64-frame swim cycle rendered from the original Aurelia bell, oral arms, tentacles, materials, and GPU simulation in the Aurelia project. Four specimens share the animation at different phases and depths in the ocean’s WebGL scene. [Portfolio Space Jellyfish](https://github.com/niklasxi/portfolio-space-jellyfish) · [Aurelia license](public/aurelia-license.txt)
 
 The distant pod uses ART & MODELING’s textured dolphin with a runtime tail stroke and wave-relative breach animation. [Dolphin- Low Poly by Fadly.W](https://sketchfab.com/3d-models/dolphin-low-poly-86936ff1e8fc428aab6a0b787ae14c16) · [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 

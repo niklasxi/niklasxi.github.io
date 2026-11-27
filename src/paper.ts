@@ -38,7 +38,7 @@ function createPaperMaterial(grain: T.Texture) {
   const uniforms = {
     uPrint: { value: null as T.Texture | null },
     uGrain: { value: grain },
-    uStars: { value: null as T.Texture | null },
+    uBackPrint: { value: null as T.Texture | null },
     uFlight: { value: 0 },
     uClearing: { value: 0 },
     uFold: { value: 0 },
@@ -49,19 +49,20 @@ function createPaperMaterial(grain: T.Texture) {
   const material = new T.ShaderMaterial({
     side: T.DoubleSide,
     uniforms,
-    vertexShader: `attribute vec3 bary; attribute float ink,seam;
-    varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vInk,vSeam;
-    void main(){vCurvedNormal=mat3(modelMatrix)*normal;vUv=uv;vInk=ink;vSeam=seam;vBary=bary;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
+    vertexShader: `attribute vec3 bary; attribute float seam;
+    varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vSeam;
+    void main(){vCurvedNormal=mat3(modelMatrix)*normal;vUv=uv;vSeam=seam;vBary=bary;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
     fragmentShader: `
     uniform float uTime,uDive,uClearing;
     uniform bool uTransmissionPass;
     ${waveGLSL}
     ${causticsGLSL}
-    uniform sampler2D uPrint,uGrain,uStars; uniform float uFold,uAirLight,uFlight;
-    varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vInk,vSeam;
-    float hash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}
+    uniform sampler2D uPrint,uGrain,uBackPrint; uniform float uFold,uAirLight,uFlight;
+    varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vSeam;
     void main(){
-      vec3 image=texture2D(uPrint,vUv).rgb;
+      // Turning the sheet over reverses its horizontal print axis.
+      vec3 color=gl_FrontFacing ? texture2D(uPrint,vUv).rgb
+        : texture2D(uBackPrint,vec2(1.-vUv.x,vUv.y)).rgb;
       vec3 n=normalize(cross(dFdx(vWorld),dFdy(vWorld)));
       if(uAirLight>.0001 && dot(vCurvedNormal,vCurvedNormal)>.0001)
         n=normalize(mix(n,normalize(gl_FrontFacing?vCurvedNormal:-vCurvedNormal),smoothstep(0.,.14,uAirLight)));
@@ -69,16 +70,6 @@ function createPaperMaterial(grain: T.Texture) {
       float grain=texture2D(uGrain,vUv*vec2(2.8,2.1)).r-.5;
       float fiber=texture2D(uGrain,vUv.yx*vec2(.85,1.35)).r-.5;
       vec3 cream=mix(vec3(.76,.74,.72),vec3(1.,.975,.93),clamp(.52+lit*.51,0.,1.));
-      float printAmount=mix(gl_FrontFacing?1.:.025,vInk,smoothstep(.82,1.,uFold));
-      vec3 printed=mix(image,vec3(.76,.76,.75)+image*.24,smoothstep(.78,1.,uFold)*.29);
-      vec2 border=min(vUv,1.-vUv);
-      float plate=smoothstep(.023,.025,min(border.x,border.y));
-      vec3 starInk=texture2D(uStars,vUv).rgb;
-      vec3 reverse=mix(cream,cream*(.10+.88*starInk),plate);
-      vec3 existingPrint=mix(cream,printed,printAmount);
-      // Leave a little of the printed reverse visible inside the folded hull.
-      if(!gl_FrontFacing) existingPrint=mix(existingPrint,reverse,.22);
-      vec3 color=mix(existingPrint,gl_FrontFacing?image:reverse,uFlight);
       float hem=step(.3293,abs(vUv.x-.5))*smoothstep(.53,.77,uFold);
       color=mix(color,color*vec3(.98,.975,.965),hem);
       float lip=1.-smoothstep(0.,.008,min(vUv.x,1.-vUv.x));
@@ -120,7 +111,6 @@ export function createPaper(grain: T.Texture) {
     centers: T.Vector2[] = [],
     uv: number[] = [],
     bary: number[] = [],
-    ink: number[] = [],
     seam: number[] = [];
   for (const face of creaseFaces()) {
     const center = face
@@ -131,7 +121,6 @@ export function createPaper(grain: T.Texture) {
       centers.push(center);
       uv.push(0.5 - p.y / height, 0.5 + p.x / width);
       bary.push(+(i === 0), +(i === 1), +(i === 2));
-      ink.push(Math.abs(center.y) > 2.16 ? 0.055 : center.x < 0 ? 0.18 : 0.095);
       seam.push(0.56);
     });
   }
@@ -145,7 +134,6 @@ export function createPaper(grain: T.Texture) {
   geom.setIndex(sheetIndices(flat));
   geom.setAttribute("uv", new T.Float32BufferAttribute(uv, 2));
   geom.setAttribute("bary", new T.Float32BufferAttribute(bary, 3));
-  geom.setAttribute("ink", new T.Float32BufferAttribute(ink, 1));
   geom.setAttribute("seam", new T.Float32BufferAttribute(seam, 1));
   const foldPose = createFoldPose(flat, centers);
   const { material: mat, uniforms } = createPaperMaterial(grain);

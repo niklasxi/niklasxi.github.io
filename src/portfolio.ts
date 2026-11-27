@@ -1,111 +1,97 @@
-// Paint the live layout using the browser's measured text ranges. This keeps
-// line breaks, scroll offset and the explicit print on the sheet in sync.
-import { sheetHeight, sheetWidth } from "./creases";
-export const portfolio = document.querySelector<HTMLElement>("#portfolio")!;
+import backPageUrl from "./assets/daily-chronicle-back.webp?url";
+import { printFinalEdition } from "./finalEdition";
 
-// Gradient-filled text computes to a transparent colour. Use the first stop
-// so the printed sheet still carries the headline ink.
-function ink(style: CSSStyleDeclaration) {
-  if (style.color !== "transparent" && style.color !== "rgba(0, 0, 0, 0)")
-    return style.color;
-  return (
-    style.backgroundImage.match(/(?:rgba?\([^)]*\)|#[0-9a-f]{3,8})/i)?.[0] ??
-    style.color
-  );
+export const portfolio = document.querySelector<HTMLElement>("#portfolio")!;
+const sheet = document.querySelector<HTMLButtonElement>("#newspaper-sheet")!;
+const turn = document.querySelector<HTMLButtonElement>("#turn-newspaper")!;
+export const newspaper = sheet.querySelector<HTMLImageElement>(".newspaper-front")!;
+export const reversePage = sheet.querySelector<HTMLImageElement>(".newspaper-back")!;
+const finalEdition = sheet.querySelector<HTMLCanvasElement>(".newspaper-final")!;
+reversePage.src = backPageUrl;
+let frontLabel = "Fold the newspaper. Front page: AI Harvesting Humans.";
+
+let backFacing = false;
+let turnTimer = 0;
+
+function finishTurn() {
+  window.clearTimeout(turnTimer);
+  sheet.classList.remove("is-turning");
 }
-function capturePage() {
-  const w = window.innerWidth,
-    h = window.innerHeight,
-    aspect = sheetHeight / sheetWidth;
-  const pw = Math.max(w, h * aspect),
-    ph = pw / aspect;
-  const scale = Math.min(
-    window.devicePixelRatio || 1,
-    2,
-    2304 / Math.max(pw, ph),
-  );
-  const image = document.createElement("canvas");
-  image.width = Math.round(pw * scale);
-  image.height = Math.round(ph * scale);
-  const ctx = image.getContext("2d")!;
-  ctx.scale(image.width / pw, image.height / ph);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, pw, ph);
-  ctx.translate((pw - w) / 2, (ph - h) / 2);
-  ctx.textBaseline = "alphabetic";
-  function paint(element: Element) {
-    const style = getComputedStyle(element),
-      box = element.getBoundingClientRect();
-    if (style.display === "none") return;
-    ctx.fillStyle = style.backgroundColor;
-    ctx.fillRect(box.x, box.y, box.width, box.height);
-    for (const side of ["Top", "Bottom"] as const) {
-      const thickness = parseFloat(style[`border${side}Width`]);
-      if (!thickness) continue;
-      ctx.fillStyle = style[`border${side}Color`];
-      ctx.fillRect(
-        box.x,
-        side === "Top" ? box.y : box.bottom - thickness,
-        box.width,
-        thickness,
-      );
-    }
-    for (const child of Array.from(element.childNodes)) {
-      if (child instanceof Element) {
-        paint(child);
-        continue;
-      }
-      if (child.nodeType !== Node.TEXT_NODE) continue;
-      const content = child.textContent ?? "";
-      for (const word of content.matchAll(/\S+/gu)) {
-        const range = document.createRange();
-        range.setStart(child, word.index!);
-        range.setEnd(child, word.index! + word[0].length);
-        const rect = range.getBoundingClientRect();
-        if (!rect.height) continue;
-        const text =
-          style.textTransform === "uppercase"
-            ? word[0].toUpperCase()
-            : style.textTransform === "lowercase"
-              ? word[0].toLowerCase()
-              : style.textTransform === "capitalize"
-                ? word[0][0].toUpperCase() + word[0].slice(1)
-                : word[0];
-        ctx.font =
-          style.fontStyle +
-          " " +
-          style.fontWeight +
-          " " +
-          style.fontSize +
-          " " +
-          style.fontFamily;
-        // Match the live page's tracking so large headings do not collide.
-        ctx.letterSpacing =
-          style.letterSpacing === "normal" ? "0px" : style.letterSpacing;
-        const metrics = ctx.measureText(text);
-        const asc = metrics.fontBoundingBoxAscent,
-          desc = metrics.fontBoundingBoxDescent;
-        const baseline = rect.y + (rect.height - asc - desc) / 2 + asc;
-        ctx.fillStyle = ink(style);
-        ctx.fillText(text, rect.x, baseline);
-        if (style.textDecorationLine.includes("underline"))
-          ctx.fillRect(rect.x, baseline + 1, rect.width, 1);
-      }
-    }
+
+function showSide(back: boolean) {
+  backFacing = back;
+  sheet.dataset.side = back ? "back" : "front";
+  sheet.setAttribute("aria-label", back
+    ? "Fold the newspaper. Reverse page: The Last Offline District."
+    : frontLabel);
+  turn.setAttribute("aria-pressed", String(back));
+}
+
+sheet.addEventListener("transitionend", (event) => {
+  if (event.propertyName === "transform") finishTurn();
+});
+
+turn.addEventListener("click", () => {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    finishTurn();
+  } else {
+    sheet.classList.add("is-turning");
+    window.clearTimeout(turnTimer);
+    turnTimer = window.setTimeout(finishTurn, 600);
   }
-  paint(portfolio.firstElementChild!);
-  return image;
+  showSide(!backFacing);
+});
+
+export function revealFinalEdition(frame: HTMLCanvasElement, completedAt: Date) {
+  const { utc, cover } = printFinalEdition(finalEdition, newspaper, frame, completedAt);
+  frontLabel = "Fold the newspaper. Final edition: The last human has died. "
+    + "Final heartbeat at " + utc + ". By ChatGPT COSMOS. No delivery addresses remain.";
+  newspaper.hidden = true;
+  finalEdition.hidden = false;
+  return { canvas: finalEdition, cover };
 }
+
+export function resetNewspaper() {
+  finishTurn();
+  showSide(false);
+  sheet.disabled = false;
+  turn.hidden = turn.disabled = false;
+  sheet.focus({ preventScroll: true });
+}
+
+export async function zoomOutFromCover(cover: ReturnType<typeof revealFinalEdition>["cover"]) {
+  finishTurn();
+  showSide(false);
+  sheet.disabled = true;
+  turn.hidden = turn.disabled = true;
+  const page = sheet.getBoundingClientRect();
+  const view = portfolio.getBoundingClientRect();
+  const units = page.width / finalEdition.width;
+  const scale = Math.max(view.width / (cover.width * units), view.height / (cover.height * units));
+  const x = (finalEdition.width / 2 - cover.x - cover.width / 2) * units * scale;
+  const y = (finalEdition.height / 2 - cover.y - cover.height / 2) * units * scale;
+  portfolio.classList.add("revealing-edition");
+  try {
+    await sheet.animate([
+      { transform: "translate(" + x + "px," + y + "px) scale(" + scale + ")" },
+      { transform: "none" },
+    ], { duration: 2700, easing: "cubic-bezier(.45,.15,.15,1)" }).finished.catch(() => {});
+  } finally {
+    portfolio.classList.remove("revealing-edition");
+    resetNewspaper();
+  }
+}
+
 export function waitForPortfolioClick(onActivate: () => void) {
-  return new Promise<HTMLCanvasElement>((resolve) => {
-    portfolio.addEventListener(
-      "click",
-      (e) => {
-        e.preventDefault();
-        onActivate();
-        resolve(capturePage());
-      },
-      { once: true },
-    );
+  return new Promise<boolean>((resolve) => {
+    function activate() {
+      if (sheet.classList.contains("is-turning")) return;
+      sheet.removeEventListener("click", activate);
+      // Keep the selected face stable while the WebGL scene finishes loading.
+      turn.disabled = true;
+      onActivate();
+      resolve(backFacing);
+    }
+    sheet.addEventListener("click", activate);
   });
 }
