@@ -70,7 +70,7 @@ export function resetNewspaper() {
   showSide(false);
   sheet.disabled = false;
   turn.hidden = turn.disabled = false;
-  about.hidden = finalEdition.hidden;
+  about.hidden = about.disabled = false;
   sheet.focus({ preventScroll: true });
 }
 
@@ -100,14 +100,16 @@ export async function zoomOutFromCover(cover: ReturnType<typeof revealFinalEditi
 
 export function waitForPortfolioClick(onActivate: () => void) {
   return new Promise<boolean>((resolve) => {
-    function activate() {
-      if (sheet.classList.contains("is-turning")) return;
-      sheet.removeEventListener("click", activate);
+    function activate(event: MouseEvent) {
+      const control = event.target instanceof Element ? event.target.closest("button") : null;
+      if (control && control !== sheet) return;
+      finishTurn();
+      portfolio.removeEventListener("click", activate);
       // Keep the selected face stable while the WebGL scene finishes loading.
-      turn.disabled = true;
+      turn.disabled = about.disabled = true;
       onActivate();
       resolve(backFacing);
     }
-    sheet.addEventListener("click", activate);
+    portfolio.addEventListener("click", activate);
   });
 }
