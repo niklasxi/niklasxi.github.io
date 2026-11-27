@@ -1,4 +1,5 @@
 import * as T from "three";
+import { blackHoleRayTables } from "./blackHoleRays";
 import fieldUrl from "./assets/quiet-deep-field.webp";
 
 const quadVertex = `
@@ -9,108 +10,45 @@ const quadVertex = `
   }
 `;
 
-const optics = `
-  const vec2 halfExtent = vec2(1.0, 0.5625);
-  const vec3 observer = vec3(0.0, 1.14, 17.0);
-  vec3 cameraRay(vec2 point) {
-    vec3 forward = normalize(-observer);
-    vec3 up = vec3(0.0, -forward.z, forward.y);
-    return normalize(1.18 * forward + vec3(point.x, 0.0, 0.0) + point.y * up);
-  }
-`;
-
-// Adapted from Jonás Javier Encarnación's Schwarzschild ray integrator and disk:
+// Disk shading and Schwarzschild integration follow Jonás Javier Encarnación's
+// black-hole tutorial. The ray paths here can be viewed from a moving camera.
 // https://jonasjavier.dev/en/blog/black-hole-three-js-shader-tutorial#the-full-file
-// The camera is fixed relative to the disk. Trace once and store both visible
-// disk intersections plus the direction of the escaping ray. The disk can then
-// rotate over a full-resolution star field without marching rays every frame.
-const traceFragment = `
-  in vec2 vUv;
-  layout(location = 0) out vec4 frontHit;
-  layout(location = 1) out vec4 backHit;
-  layout(location = 2) out vec4 escapeRay;
-  ${optics}
-  vec3 acceleration(vec3 position, float angularMomentumSq) {
-    float radiusSq = max(dot(position, position), 0.0001);
-    return -1.5 * angularMomentumSq * position / (radiusSq * radiusSq * sqrt(radiusSq));
-  }
-  vec4 diskHit(vec3 hit, vec3 ray, float radius) {
-    vec2 azimuth = hit.xz / radius;
-    vec3 orbit = vec3(-azimuth.y, 0.0, azimuth.x);
-    float speed = inversesqrt(2.0 * (radius - 1.0));
-    float doppler = sqrt(1.0 - speed * speed) / (1.0 - speed * dot(orbit, -normalize(ray)));
-    return vec4(azimuth * 0.5 + 0.5, (radius - 3.0) / 7.0, doppler * 0.5);
-  }
-  void main() {
-    vec3 point = observer;
-    vec3 ray = cameraRay((2.0 * vUv - 1.0) * halfExtent);
-    vec3 momentum = cross(point, ray);
-    float angularMomentumSq = dot(momentum, momentum);
-    float momentumLength = max(length(momentum), 0.01);
-    frontHit = vec4(0.5, 0.5, 1.0, 0.0);
-    backHit = vec4(0.5, 0.5, 1.0, 0.0);
-    escapeRay = vec4(0.0);
-    int crossings = 0;
-    for (int stepIndex = 0; stepIndex < 240; stepIndex++) {
-      float radiusSq = dot(point, point);
-      if (radiusSq < 1.0) break;
-      if (radiusSq > 1600.0 && dot(point, ray) > 0.0) {
-        escapeRay = vec4(normalize(ray) * 0.5 + 0.5, 1.0);
-        break;
-      }
-      float dt = clamp(0.075 * radiusSq / momentumLength, 0.015, 1.1);
-      vec3 acc = acceleration(point, angularMomentumSq);
-      vec3 nextPoint = point + dt * (ray + 0.5 * dt * acc);
-      if (point.y * nextPoint.y < 0.0) {
-        vec3 hit = mix(point, nextPoint, point.y / (point.y - nextPoint.y));
-        float radius = length(hit.xz);
-        if (radius > 3.0 && radius < 10.0) {
-          vec4 sampleHit = diskHit(hit, ray, radius);
-          if (crossings == 0) frontHit = sampleHit;
-          else if (crossings == 1) backHit = sampleHit;
-        }
-        // Keep the same orbital crossing in each texture even when a ray
-        // first crosses empty space beyond the outer edge of the disk.
-        crossings++;
-      }
-      ray += 0.5 * dt * (acc + acceleration(nextPoint, angularMomentumSq));
-      point = nextPoint;
-    }
-  }
-`;
-
-// Two separable Gaussian passes spread the disk's actual radiance across
-// the lens. The footprint stays fixed while finer gas filaments rotate.
-const bloomFragment = `
-  varying vec2 vUv;
-  uniform sampler2D uFront, uBack, uBlur;
-  uniform vec2 uStep;
-  uniform bool uHorizontal;
-  float intensity(vec4 hit) {
-    return pow(1.0 - hit.b, 2.4) * smoothstep(0.002,0.060,hit.b) * pow(2.0*hit.a,3.0);
-  }
-  void main() {
-    float sum = 0.0, weights = 0.0;
-    for (int i = -12; i <= 12; i++) {
-      float t = float(i);
-      vec2 uv = vUv + uStep*t;
-      float weight = exp(-t*t/36.0);
-      float value = uHorizontal
-        ? (intensity(texture2D(uFront, uv)) + intensity(texture2D(uBack, uv))) / 6.0
-        : texture2D(uBlur, uv).r;
-      sum += value*weight;
-      weights += weight;
-    }
-    gl_FragColor = vec4(vec3(sum/weights),1.0);
-  }
-`;
-
 const skyFragment = `
   varying vec2 vUv;
-  uniform sampler2D uField, uGas, uFront, uBack, uEscape, uGlow;
-  uniform vec2 uViewport, uCenter, uFieldPan;
-  uniform float uTime, uZoom, uPulse;
-  ${optics}
+  uniform sampler2D uField, uGas, uPaths, uEscape;
+  uniform vec2 uViewport, uCenter;
+  uniform vec4 uView;
+  uniform float uTime;
+  uniform float uVisibility;
+  const float pi = 3.14159265359;
+  const float turn = 2.0 * pi;
+  const float focalLength = 1.18;
+  const float maximumSlope = 1.18;
+  const float maximumRadius = 24.0;
+
+  mat2 bank(float angle) {
+    float c = cos(angle), s = sin(angle);
+    return mat2(c, -s, s, c);
+  }
+
+  vec4 diskHit(vec3 eye, vec3 tangent, float rayIndex, float angle) {
+    vec2 path = texture2D(uPaths, vec2(rayIndex, angle / turn)).rg;
+    float radius = maximumRadius * path.x;
+    if (radius < 3.0 || radius >= 10.0) return vec4(0.0, 0.0, 1.0, 0.0);
+    float c = cos(angle), s = sin(angle);
+    vec3 radial = c * eye + s * tangent;
+    vec2 azimuth = normalize(radial.xz);
+    float outward = path.y;
+    vec3 ray = outward * radial + sqrt(max(0.0, 1.0 - outward * outward)) * (c * tangent - s * eye);
+    vec3 orbit = vec3(-azimuth.y, 0.0, azimuth.x);
+    float speed = inversesqrt(2.0 * (radius - 1.0));
+    float doppler = sqrt(1.0 - speed * speed) / (1.0 - speed * dot(orbit, -ray));
+    return vec4(azimuth * 0.5 + 0.5, (radius - 3.0) / 7.0, doppler * 0.5);
+  }
+
+  float firstCrossing(vec3 eye, vec3 tangent) {
+    return mod(atan(-eye.y, tangent.y), pi);
+  }
 
   float noiseAt(vec2 cell) {
     vec2 f = fract(cell);
@@ -146,26 +84,42 @@ const skyFragment = `
 
   void main() {
     float shortSide = min(uViewport.x, uViewport.y);
-    vec2 screen = (vUv-uCenter)*uViewport/(0.47*shortSide*uZoom);
-    mat2 tilt = mat2(0.989,-0.148,0.148,0.989);
+    mat2 tilt = bank(uView.z);
+    vec2 screen = (vUv-uCenter)*uViewport/(0.47*shortSide*uView.w);
     vec2 q = tilt * screen;
-    vec2 lensUv = clamp(0.5 + 0.5 * q / halfExtent, 0.0, 1.0);
-    vec4 escaped = texture2D(uEscape, lensUv);
-    vec3 straight = cameraRay(q);
-    vec3 bent = escaped.rgb*2.0 - 1.0;
-    float bend = 1.0 - smoothstep(0.38, 0.98, length(q/halfExtent));
-    vec2 fieldScale = uViewport / (max(uViewport.x/1.463,uViewport.y)*vec2(1.463,1.0));
-    vec2 fieldUv = 0.5 + (vUv-0.5)*fieldScale + uFieldPan;
-    fieldUv += transpose(tilt)*(bent.xy-straight.xy) * (0.32*bend*shortSide) * fieldScale/uViewport;
-    vec3 color = texture2D(uField, fieldUv).rgb * mix(1.0, escaped.a, bend);
-    vec4 front = emission(texture2D(uFront,lensUv));
-    vec4 back = emission(texture2D(uBack,lensUv));
-    color = mix(mix(color,back.rgb,back.a),front.rgb,front.a);
-    color += vec3(1.0,0.48,0.24) * texture2D(uGlow,lensUv).r * 0.75;
-    gl_FragColor = vec4(1.0 - exp(-color * (1.12 + 0.08*uPulse)), 1.0);
+    float slope = length(q) / focalLength;
+    float rayIndex = sqrt(slope / maximumSlope);
+
+    float azimuth = uView.x, elevation = uView.y;
+    vec3 right = vec3(cos(azimuth), 0.0, -sin(azimuth));
+    vec3 eye = vec3(sin(azimuth)*cos(elevation), sin(elevation), cos(azimuth)*cos(elevation));
+    vec3 up = cross(eye, right);
+    vec3 tangent = (q.x * right + q.y * up) / max(length(q), 0.00001);
+    vec3 straight = normalize(-eye + slope * tangent);
+    vec4 escape = texture2D(uEscape,vec2(rayIndex, 0.5));
+    vec3 bent = (2.0*escape.r-1.0)*eye + (2.0*escape.g-1.0)*tangent;
+
+    vec2 fieldSize = max(uViewport.x/1.463,uViewport.y) * vec2(1.463,1.0);
+    vec2 skyTurn = bank(uView.z-0.148) * ((vUv-0.5)*uViewport);
+    vec2 fieldUv = 0.5 + skyTurn / fieldSize + vec2(0.19*azimuth,0.21*(elevation-0.067));
+    float bend = 1.0 - smoothstep(0.41, 0.78, slope);
+    vec3 shift = bent - straight;
+    fieldUv += transpose(tilt)*vec2(dot(shift,right),dot(shift,up))*(0.32*bend*shortSide)/fieldSize;
+    vec3 color = texture2D(uField, fieldUv).rgb * mix(1.0, escape.a, bend);
+    if (slope < maximumSlope) {
+      float crossing = firstCrossing(eye, tangent);
+      vec4 nearDisk = emission(diskHit(eye, tangent, rayIndex, crossing));
+      vec4 farDisk = emission(diskHit(eye, tangent, rayIndex, crossing + pi));
+      color = mix(mix(color,farDisk.rgb,farDisk.a),nearDisk.rgb,nearDisk.a);
+
+      float halo = exp(-26.0 * abs(slope - 0.167)) * smoothstep(0.13, 0.18, slope);
+      float haze = exp(-7.0 * slope - 12.0 * abs(q.y)) * smoothstep(0.19, 0.30, slope);
+      color += vec3(1.0,0.48,0.24) * (0.012 * halo + 0.021 * haze);
+    }
+    gl_FragColor = vec4(1.0 - exp(-color * 1.12), 1.0);
     #include <colorspace_fragment>
     float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-    gl_FragColor.rgb += (dither - 0.5) / 255.0;
+    gl_FragColor.rgb = (gl_FragColor.rgb + (dither - 0.5) / 255.0) * uVisibility;
   }
 `;
 
@@ -184,27 +138,17 @@ export function createBlackHoleSky() {
   gas.minFilter = gas.magFilter = T.LinearFilter;
   gas.needsUpdate = true;
 
-  const lookup = new T.WebGLRenderTarget(1024, 576, {
-    count: 3,
-    minFilter: T.LinearFilter,
-    magFilter: T.LinearFilter,
-    depthBuffer: false,
-    generateMipmaps: false,
-  });
-  const glow = new T.WebGLRenderTarget(384,216,{depthBuffer:false});
+  const rays = blackHoleRayTables();
   const uniforms = {
-    uGlow: { value: glow.texture },
     uField: { value: field },
     uGas: { value: gas },
-    uFront: { value: lookup.textures[0] },
-    uBack: { value: lookup.textures[1] },
-    uEscape: { value: lookup.textures[2] },
+    uPaths: { value: rays.paths },
+    uEscape: { value: rays.escapes },
     uViewport: { value: new T.Vector2(1, 1) },
     uCenter: { value: new T.Vector2(0.5, 0.5) },
-    uFieldPan: { value: new T.Vector2() },
+    uView: { value: new T.Vector4(0, 0.067, 0.148, 1) },
     uTime: { value: 0 },
-    uZoom: { value: 1 },
-    uPulse: { value: 0 },
+    uVisibility: { value: 1 },
   };
   const geometry = new T.PlaneGeometry(2, 2);
   const material = new T.ShaderMaterial({
@@ -215,62 +159,17 @@ export function createBlackHoleSky() {
   mesh.name = "Lensed deep field";
   mesh.frustumCulled = false;
   mesh.renderOrder = -10000;
-  let traced = false;
-
-  function update(renderer: T.WebGLRenderer, seconds: number, centerUV: T.Vector2,
-    zoom = 1, fieldPan?: T.Vector2, pulse = 0) {
-    if (!traced) {
-      const trace = new T.ShaderMaterial({
-        glslVersion: T.GLSL3, vertexShader: quadVertex, fragmentShader: traceFragment,
-        depthWrite: false, depthTest: false,
-      });
-      const quad = new T.Mesh(geometry, trace);
-      quad.frustumCulled = false;
-      const scene = new T.Scene();
-      scene.add(quad);
-      const originalTarget = renderer.getRenderTarget();
-      if (renderer.extensions.has("EXT_color_buffer_float")) {
-        for (const map of lookup.textures) map.type = T.HalfFloatType;
-        glow.texture.type = T.HalfFloatType;
-      }
-      renderer.setRenderTarget(lookup);
-      renderer.render(scene, new T.Camera());
-      const temp = glow.clone();
-      const blur = new T.ShaderMaterial({
-        vertexShader: quadVertex, fragmentShader: bloomFragment,
-        uniforms: {
-          uHorizontal: {value:true}, uStep: {value:new T.Vector2(2/384,0)},
-          uFront: uniforms.uFront, uBack: uniforms.uBack, uBlur: {value:null as T.Texture | null},
-        },
-        depthTest:false, depthWrite:false,
-      });
-      quad.material = blur;
-      renderer.setRenderTarget(temp);
-      renderer.render(scene, new T.Camera());
-      blur.uniforms.uHorizontal.value = false;
-      blur.uniforms.uStep.value.set(0,2/216);
-      blur.uniforms.uBlur.value = temp.texture;
-      renderer.setRenderTarget(glow);
-      renderer.render(scene, new T.Camera());
-      renderer.setRenderTarget(originalTarget);
-      temp.dispose();
-      blur.dispose();
-      trace.dispose();
-      traced = true;
-    }
+  function update(renderer: T.WebGLRenderer, seconds: number, center: T.Vector2, view: T.Vector4, visibility: number) {
     renderer.getDrawingBufferSize(uniforms.uViewport.value);
-    uniforms.uCenter.value.copy(centerUV);
-    uniforms.uZoom.value = zoom;
-    if (fieldPan) uniforms.uFieldPan.value.copy(fieldPan);
-    uniforms.uPulse.value = pulse;
+    uniforms.uCenter.value.copy(center);
+    uniforms.uView.value.copy(view);
     uniforms.uTime.value = seconds;
+    uniforms.uVisibility.value = visibility;
   }
 
   function dispose() {
     field.dispose();
     gas.dispose();
-    lookup.dispose();
-    glow.dispose();
     geometry.dispose();
     material.dispose();
   }

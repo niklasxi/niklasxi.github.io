@@ -28,6 +28,19 @@ export function frameLastLight(position: T.Vector3, sun: T.Vector3, aspect: numb
 
 type Television = Awaited<ReturnType<typeof loadTelevision>>;
 export const televisionFallStart = 10.3;
+export const televisionGone = 15.4;
+const sweepStart = 0.44;
+const diveStart = 4.95;
+const coverShot = 6.7;
+const diveEnd = 8.35;
+const reducedCoverShot = 1.45;
+const reducedDiveEnd = 2.35;
+
+export function cameraDiveSwells(t: number, reduced: boolean) {
+  if (reduced) return 0;
+  const shot = t - televisionGone;
+  return ease(sweepStart, diveStart + 1.25, shot) * (1 - ease(diveEnd - 1.0, diveEnd, shot));
+}
 
 export function createCosmicEnding(tv: Television) {
   const scene = new T.Scene();
@@ -55,6 +68,7 @@ export function createCosmicEnding(tv: Television) {
   occultation.renderOrder = -10;
   scene.add(occultation);
   const center = new T.Vector2();
+  const view = new T.Vector4();
   const offset = new T.Vector3();
   let lastFeed = -Infinity;
 
@@ -74,7 +88,7 @@ export function createCosmicEnding(tv: Television) {
       }
       const reveal = ease(1.06, 6.8, t);
       const drift = ease(5.4, televisionFallStart, t);
-      const fall = ease(televisionFallStart, 15.4, t);
+      const fall = ease(televisionFallStart, televisionGone, t);
       const motion = reduced ? 0.42 : 1;
       // Frame the curved glass edge-to-edge at the cut. Dolly back on an
       // exponential distance curve so the close and wide shots both linger.
@@ -102,17 +116,47 @@ export function createCosmicEnding(tv: Television) {
         depth * (reveal * T.MathUtils.lerp(hangY, oy, fall) + 0.105 * arc * shortSide) - offset.y * (1 - reveal),
         -depth,
       );
-      cabinet.visible = t < 15.4;
+      cabinet.visible = occultation.visible = t < televisionGone;
       // Pull the set away at an exponential rate: the black hole stays the same
       // size on screen, so the shrinking TV makes it feel enormous.
       cabinet.scale.setScalar(Math.exp(-(reduced ? 1.7 : 2.2) * fall));
       const shadowDepth = 77;
       occultation.position.set(ox * shadowDepth, oy * shadowDepth, -shadowDepth);
       occultation.scale.setScalar(shadowDepth * tan * shortSide * 0.068);
-      tv.setSignal(feed.texture, elapsed, 1 - ease(0.85, 1.85, t), reduced);
-      sky.update(renderer, elapsed * (reduced ? 0.2 : 1), center);
+      if (cabinet.visible) tv.setSignal(feed.texture, elapsed, 1 - ease(0.85, 1.85, t), reduced);
+
+      const shot = t - televisionGone;
+      const sweep = ease(sweepStart, reduced ? reducedCoverShot : diveStart + 0.9, shot);
+      let visibility = 1;
+      if (reduced) {
+        center.x = T.MathUtils.lerp(center.x, 0.54, sweep);
+        center.y = T.MathUtils.lerp(center.y, 0.52, sweep);
+        view.set(0.10 * sweep, 0.067 + 0.05 * sweep, 0.148, 1 + 0.24 * sweep);
+        visibility -= ease(reducedCoverShot + 0.1, reducedDiveEnd, shot);
+      } else {
+        const dive = ease(diveStart - 0.45, diveEnd, shot);
+        const skim = Math.sin(Math.PI * dive);
+        const rise = Math.sin(sweep * Math.PI * 0.86);
+        const portrait = 1 - ease(0.62, 1.2, aspect);
+        const orbitZoom = 1 + 1.55 * sweep;
+        // Keep the rim in view for the close pass, then aim inside the shadow
+        // and enlarge it past every edge of the frame, even on a tall phone.
+        const horizonZoom = 14.5 * Math.max(aspect, 1 / aspect);
+        const horizonCrossing = ease(coverShot + 0.35, diveEnd, shot);
+        center.x = T.MathUtils.lerp(center.x, 0.5, sweep) - T.MathUtils.lerp(0.11, 0.04, portrait) * skim;
+        center.y = T.MathUtils.lerp(center.y, 0.5, sweep) - T.MathUtils.lerp(0.27, 0.34, portrait) * skim;
+        view.set(
+          4.15 * sweep + 0.95 * dive,
+          T.MathUtils.lerp(0.067 + 0.37 * rise, 0.22, dive),
+          0.148 + 0.62 * Math.sin(Math.PI * sweep) - 2.18 * dive,
+          orbitZoom * Math.pow(horizonZoom / orbitZoom, dive) * 2 ** horizonCrossing,
+        );
+        visibility -= ease(diveEnd - 0.48, diveEnd, shot);
+      }
+      const complete = shot >= (reduced ? reducedDiveEnd : diveEnd);
+      sky.update(renderer, elapsed * (reduced ? 0.2 : 1), center, view, visibility);
       renderer.render(scene, camera);
-      return t >= 16.4;
+      return complete;
     },
     dispose() {
       scene.remove(cabinet);

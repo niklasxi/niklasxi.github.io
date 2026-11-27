@@ -44,7 +44,7 @@ function linkGeometry(start = 0, end = 1) {
 export function createTether(
   scene: T.Scene,
   boat: T.Object3D,
-  surface: T.Intersection,
+  surface: T.Intersection | null,
   water: WaterLight,
 ) {
   const metal = forgedSteel();
@@ -249,7 +249,7 @@ export function createTether(
     halves[1].position.x -= 0.077 * crack;
     halves[1].rotation.set(0.06, 0.24, -1.02 * crack - 0.46 * recoil);
   }
-  return { update, anchor, attachment: top };
+  return { update, anchor, attachment: top, looseLink: halves[1], attachedHalf: halves[0] };
 }
 
 export function createSeabedDetails(scene: T.Scene) {

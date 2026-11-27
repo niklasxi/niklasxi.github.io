@@ -1,4 +1,3 @@
-import { createScore, type ScoreCue } from "./score";
 import { planeCreases } from "./paperFlight";
 import oceanUrl from "./assets/ocean-waves.mp3?url";
 import thunderUrl from "./assets/dry-thunder.mp3?url";
@@ -57,17 +56,12 @@ export function prepareSound() {
   let audio: {
     context: AudioContext;
     output: DynamicsCompressorNode;
-    score: ReturnType<typeof createScore>;
   } | undefined;
   let surfGain: GainNode | undefined;
   let wind: { gain: GainNode; lowpass: BiquadFilterNode; stereo: StereoPannerNode } | undefined;
   let creaseFilter: BiquadFilterNode | undefined;
   let stormGain: GainNode | undefined;
   let stormToken = 0;
-  let stormMeter: AnalyserNode | undefined;
-  const stormSamples = new Float32Array(2048);
-  let lastStormSample = -Infinity;
-
   let spaceGain: GainNode | undefined;
   let spaceSources: AudioScheduledSourceNode[] = [];
   let spaceSubGain: GainNode | undefined;
@@ -80,7 +74,8 @@ export function prepareSound() {
   let airBuffer: AudioBuffer | undefined;
   let lastHover = -1;
   let lastDepth = 0;
-  const surfaceGain = 1.65;
+  const surfMix = 0.71 * 10 ** (-6 / 20); // An additional 6 dB cut to the ocean bed.
+  const surfaceGain = 1.65 * surfMix;
   const surfaceHz = 20000;
   const submergedHz = 2400;
   const stormGainLevel = 0.42;
@@ -95,7 +90,7 @@ export function prepareSound() {
       output.attack.value = 0.004;
       output.release.value = 0.18;
       output.connect(context.destination);
-      audio = { context, output, score: createScore(context, output) };
+      audio = { context, output };
     }
     return audio;
   }
@@ -140,7 +135,6 @@ export function prepareSound() {
 
   function resetStorm() {
     stormToken++;
-    audio?.score.reactToThunder(0);
     if (!stormGain) return;
     const now = stormGain.context.currentTime;
     stormGain.gain.cancelScheduledValues(now);
@@ -229,15 +223,15 @@ export function prepareSound() {
     spaceImpacted = false;
   }
 
-  function setSpace(time: number) {
+  function setSpace(time: number, cameraDive: number) {
     if (!spaceGain) return;
     const context = spaceGain.context;
     const now = context.currentTime;
     const fall = smoothstep(10.3, 15.4, time);
     const tail = 1 - 0.70 * smoothstep(15.55, 17.9, time);
-    if (spaceSubGain) spaceSubGain.gain.setTargetAtTime((0.044 + 0.116 * fall) * tail, now, 0.12);
-    if (spaceDroneGain) spaceDroneGain.gain.setTargetAtTime((0.062 + 0.053 * fall) * tail, now, 0.15);
-    if (spaceFilter) spaceFilter.frequency.setTargetAtTime(95 + 240 * fall, now, 0.12);
+    if (spaceSubGain) spaceSubGain.gain.setTargetAtTime((0.044 + 0.116 * fall) * tail + 0.126 * cameraDive, now, 0.12);
+    if (spaceDroneGain) spaceDroneGain.gain.setTargetAtTime((0.062 + 0.053 * fall) * tail + 0.068 * cameraDive, now, 0.15);
+    if (spaceFilter) spaceFilter.frequency.setTargetAtTime(95 + 240 * fall + 380 * cameraDive, now, 0.12);
     if (spaceHumGain) {
       spaceHumGain.gain.setTargetAtTime(1 - smoothstep(13.5, 15.5, time), now, 0.15);
     }
@@ -335,21 +329,10 @@ export function prepareSound() {
       if (!surfGain) return;
       const now = surfGain.context.currentTime;
       surfGain.gain.cancelScheduledValues(now);
-      surfGain.gain.setTargetAtTime(1.45, now, 1.2);
+      surfGain.gain.setTargetAtTime(1.45 * surfMix, now, 1.2);
     },
     storm(duration = 2.4) {
       fadeStorm(stormGainLevel, duration, false);
-    },
-    followThunder() {
-      if (!audio || !stormMeter || thunder.paused) return;
-      const now = audio.context.currentTime;
-      if (now - lastStormSample < 0.04) return;
-      lastStormSample = now;
-      stormMeter.getFloatTimeDomainData(stormSamples);
-      let energy = 0;
-      for (const sample of stormSamples) energy += sample * sample;
-      const rms = Math.sqrt(energy / stormSamples.length);
-      audio.score.reactToThunder(smoothstep(0.006, 0.055, rms));
     },
     calmStorm(duration = 8.5) {
       fadeStorm(0, duration, true);
@@ -359,12 +342,8 @@ export function prepareSound() {
       stopSpace(fade);
     },
     startDesk() {
-      const { context, score } = setupAudio();
+      const { context } = setupAudio();
       void context.resume().catch(() => {});
-      score.play("desk");
-    },
-    score(cue: ScoreCue) {
-      audio?.score.play(cue);
     },
     start() {
       const { context, output } = setupAudio();
@@ -440,9 +419,7 @@ export function prepareSound() {
       context.createMediaElementSource(ocean).connect(surfGain).connect(filter);
       stormGain = context.createGain();
       stormGain.gain.value = 0;
-      stormMeter = context.createAnalyser();
-      stormMeter.fftSize = stormSamples.length;
-      context.createMediaElementSource(thunder).connect(stormGain).connect(stormMeter).connect(filter);
+      context.createMediaElementSource(thunder).connect(stormGain).connect(filter);
       void thunder.play().catch(() => {});
       void ocean.play().catch(() => {});
       void foldData
@@ -501,6 +478,40 @@ export function prepareSound() {
       while (foldBoundaries[nextFold + 1] <= progress) nextFold++;
       const length = foldBoundaries[++nextFold] - progress;
       playPaper(foldBuffer, progress, length, duration * length);
+    },
+    craneLanding(cue: number) {
+      if (cue === 0) {
+        fadeStorm(stormGainLevel, .65, false);
+        if (audio && waterFilter && surfGain) {
+          const now = audio.context.currentTime;
+          waterFilter.frequency.setTargetAtTime(15500, now, .12);
+          surfGain.gain.setTargetAtTime(surfaceGain, now, .28);
+          void ocean.play().catch(()=>{});
+        }
+        stopPaper();
+        if (foldBuffer && creaseFilter) playPaper(foldBuffer,.36,.34/foldBuffer.duration,.29,.78,0,creaseFilter);
+      } else if (audio && waterFilter && surfGain) {
+        const now=audio.context.currentTime;
+        waterFilter.frequency.setTargetAtTime(640,now,.3);
+        surfGain.gain.setTargetAtTime(surfaceGain*.48,now,.25);
+        void ocean.play().catch(()=>{});
+        if (splashBuffer) {
+          const source=audio.context.createBufferSource(), gain=audio.context.createGain();
+          source.buffer=splashBuffer;
+          gain.gain.setValueAtTime(.24,now);
+          gain.gain.exponentialRampToValueAtTime(.001,now+1.15);
+          source.connect(gain).connect(waterFilter);
+          source.onended=()=>{source.disconnect();gain.disconnect();};
+          source.start(now,0,Math.min(1.2,splashBuffer.duration));
+        }
+      }
+    },
+    craneWing(beat: number, strength: number) {
+      if (!foldBuffer || !creaseFilter) return;
+      const downstroke = beat % 2 === 1;
+      const seconds = downstroke ? 0.23 : 0.15;
+      playPaper(foldBuffer, foldBoundaries[1 + beat % 5], seconds / foldBuffer.duration,
+        seconds * (downstroke ? 1.04 : 0.94), strength * (downstroke ? 0.34 : 0.15), 0, creaseFilter);
     },
     foldPlane(progress: number, duration: number) {
       if (!foldBuffer || !creaseFilter || progress <= 0 || progress >= 1) return;
@@ -586,7 +597,7 @@ export function prepareSound() {
       if (!surfGain) return;
       const now = surfGain.context.currentTime;
       surfGain.gain.setValueAtTime(surfaceGain, now);
-      surfGain.gain.linearRampToValueAtTime(2.1, now + 2);
+      surfGain.gain.linearRampToValueAtTime(2.1 * surfMix, now + 2);
     },
     setDepth(depth: number) {
       if (!waterFilter || depth === lastDepth) return;
@@ -616,7 +627,6 @@ export function prepareSound() {
       thunder.pause();
       resetStorm();
       stopPaper();
-      audio?.score.cut();
       if (!audio || !airBuffer) return;
       const { context, output } = audio;
       const now = context.currentTime;
@@ -634,7 +644,6 @@ export function prepareSound() {
     },
     startTelevision(reduced: boolean) {
       startSpace(reduced);
-      audio?.score.play("space");
       if (!audio || !airBuffer) return;
       const { context, output } = audio;
       const now = context.currentTime;
@@ -661,7 +670,7 @@ export function prepareSound() {
       if (!surfGain) return;
       const now = surfGain.context.currentTime;
       surfGain.gain.cancelScheduledValues(now);
-      surfGain.gain.setTargetAtTime(0.65, now, Math.max(0.35, duration * 0.28));
+      surfGain.gain.setTargetAtTime(0.65 * surfMix, now, Math.max(0.35, duration * 0.28));
     },
     land() {
       if (!splash && splashBuffer && splashGain && waterFilter) {

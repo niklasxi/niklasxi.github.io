@@ -17,10 +17,10 @@ import { createBreachSplashes } from "./breachSplash";
 import { createBowSpray } from "./bowSpray";
 import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
-import type { ScoreCue } from "./score";
 import { createPaper } from "./paper";
 import { createPaperSprings, createFlexiblePaper } from "./paperFlex";
-import { createCosmicEnding, frameLastLight, televisionFallStart } from "./cosmicEnding";
+import { cameraDiveSwells, createCosmicEnding, frameLastLight, televisionFallStart, televisionGone } from "./cosmicEnding";
+import { loadCrane } from "./crane";
 import { loadTelevision } from "./television";
 import { createPlane } from "./plane";
 import { createPaperFlight, flightTiming } from "./paperFlight";
@@ -44,25 +44,9 @@ type Stage =
   | "space"
   | "tv-float"
   | "tv-fall"
+  | "crane"
+  | "camera-dive"
   | "end";
-const chapterScore: Record<Stage, ScoreCue | null> = {
-  intro: "fold",
-  surface: "surface",
-  descending: "depth",
-  anchored: "depth",
-  releasing: "release",
-  drift: "drift",
-  transform: "ascent",
-  sheet: "ascent",
-  folding: "planeFold",
-  flight: "flight",
-  "last-light": "lastLight",
-  blackout: null,
-  space: null,
-  "tv-float": null,
-  "tv-fall": "fall",
-  end: "end",
-};
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
@@ -73,8 +57,10 @@ const landingTitle = document.querySelector<HTMLHeadingElement>("#landing-title"
 const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
 const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
 const lightTitle = document.querySelector<HTMLElement>("#light-title")!;
-const endTitle = document.querySelector<HTMLElement>("#end-title")!;
-const returnButton = document.querySelector<HTMLButtonElement>("#return-portfolio")!;
+const tvTitle = document.querySelector<HTMLElement>("#tv-title")!;
+const craneTitle = document.querySelector<HTMLElement>("#crane-title")!;
+const craneCredit = document.querySelector<HTMLElement>("#crane-credit")!;
+const craneQuestion = document.querySelector<HTMLElement>("#crane-question")!;
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -90,9 +76,11 @@ async function start() {
   renderer.setClearColor(0x000000, 0);
   const loader = new T.TextureLoader();
   const atlasReady = loader.loadAsync(swimUrl).catch(() => null);
-  const [[sky, storm, ripples, sand, grain, deskTexture], television] = await Promise.all([
-    Promise.all([skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, deskUrl].map(url => loader.loadAsync(url))),
+  const landscape = Promise.all([skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, deskUrl].map(url => loader.loadAsync(url)));
+  const [[sky, storm, ripples, sand, grain, deskTexture], television, renderCrane] = await Promise.all([
+    landscape,
     loadTelevision(),
+    loadCrane(landscape),
     newspaper.decode(),
     reversePage.decode(),
   ]);
@@ -204,9 +192,8 @@ async function start() {
   let ending: ReturnType<typeof createCosmicEnding> | undefined;
   let spaceTime = 0;
   let spaceTimeline = 0;
+  let killAt = Infinity;
   let endingReduced = reduced;
-  let completedAt: Date | undefined;
-  let revealRequested = false;
   let headingIndex = 0,
     headingSince = 0;
   let findOutShown = false;
@@ -280,14 +267,10 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
-    const scoreCue = chapterScore[s];
-    if (scoreCue) sound.score(scoreCue);
     lightTitle.hidden = s !== "last-light";
-    endTitle.hidden = returnButton.hidden = s !== "end";
+    tvTitle.hidden = s !== "tv-float";
     if (s === "end") {
-      completedAt = new Date();
-      revealRequested = false;
-      if (keyboardAction) returnButton.focus({ preventScroll: true });
+      sound.endSpace(0.13);
     }
     if (s === "blackout") {
       sound.lightsOut();
@@ -337,6 +320,13 @@ async function start() {
     if (s === "surface") {
       landingTitle.hidden = false;
       landingTitle.style.opacity = "";
+    }
+    if (s === "crane") {
+      killAt = Infinity;
+      craneTitle.hidden = false;
+      craneTitle.style.opacity = "";
+      craneQuestion.hidden = true;
+      craneQuestion.style.opacity = "";
     }
     if (s === "surface" || s === "anchored") sound.cue("arrival");
     if (s === "transform") {
@@ -397,7 +387,9 @@ async function start() {
       space: "Television static breaks the silence. The sunset returns on a television floating in deep space.",
       "tv-float": "The television drifts beside a black hole. Choose End it to send it into the dark.",
       "tv-fall": "The television falls into the black hole while the plane continues toward sunset on its screen.",
-      end: "When does it end?",
+      "camera-dive": "The viewpoint sweeps around the glowing disk and plunges toward the black hole.",
+      end: "The camera crosses into darkness.",
+      crane: "A lone paper crane flies through the dark. Choose Kill it to send it into the sea.",
     };
     canvas.setAttribute("aria-label", descriptions[s]);
     if (s !== "intro") narration.textContent = descriptions[s];
@@ -435,7 +427,7 @@ async function start() {
 
   function activate(event: MouseEvent) {
     if (button.disabled) return;
-    if (stage !== "sheet") sound.click();
+    if (stage !== "sheet" && stage !== "crane") sound.click();
     keyboardAction = event.detail === 0;
     if (stage === "surface") setStage("descending", reduced ? 0.85 : 3.55);
     else if (stage === "anchored") {
@@ -454,6 +446,10 @@ async function start() {
       foldingAttitude.copy(boat.quaternion);
       carriedSpin.copy(flight.sheet.spin);
       setStage("folding", timing.foldDuration);
+    } else if (stage === "crane" && killAt === Infinity) {
+      killAt = age;
+      button.disabled = button.hidden = true;
+      narration.textContent = "The crane crumples and falls into the sea.";
     } else if (stage === "tv-float") {
       setStage("tv-fall");
     }
@@ -618,21 +614,16 @@ async function start() {
   });
 
   function showPortfolio() {
-    // Copy the just-rendered frame before the WebGL drawing buffer is cleared.
-    const edition = completedAt && revealFinalEdition(canvas, completedAt);
-    canvas.style.removeProperty("filter");
+    const edition = stage === "crane" ? revealFinalEdition(canvas, new Date()) : undefined;
     ending?.dispose();
     ending = undefined;
     desk.mesh.visible = false;
-    sound.endSpace();
     sound.startDesk();
-    endTitle.hidden = returnButton.hidden = true;
     returned = true;
     canvas.dataset.stage = "portfolio";
     if (edition) {
       frontPage.image = edition.canvas;
       frontPage.needsUpdate = true;
-      completedAt = undefined;
     }
     portfolio.hidden = false;
     document.querySelector<HTMLElement>("main")!.hidden = true;
@@ -661,6 +652,10 @@ async function start() {
         title.hidden = true;
         title.style.opacity = "";
       });
+      for (const title of [craneTitle, craneQuestion, craneCredit]) {
+        title.hidden = true;
+        title.style.opacity = "";
+      }
       started = false;
       last = 0;
       document.querySelector<HTMLElement>("main")!.hidden = false;
@@ -669,8 +664,6 @@ async function start() {
       requestAnimationFrame(frame);
     });
   }
-  returnButton.addEventListener("click", () => { revealRequested = true; });
-
   function frame(stamp: number) {
     if (returned) return;
     requestAnimationFrame(frame);
@@ -741,6 +734,36 @@ async function start() {
       }
       setStage("space");
     }
+    if (stage === "end") {
+      if (age >= (endingReduced ? 1.2 : 2.4)) setStage("crane");
+      return;
+    }
+    if (stage === "crane") {
+      const done = renderCrane(renderer, age, w / h, endingReduced, sound.craneWing, sound.craneLanding, killAt);
+      // The question follows the viewer’s decision to end the flight.
+      const duration = endingReduced ? 5.8 : 10.8;
+      const shot = Math.max(0, age - killAt);
+      const titleOut = ease(duration - 1.4, duration - 0.4, age);
+      craneTitle.style.opacity = String(1 - titleOut);
+      craneCredit.hidden = titleOut < 1 || killAt !== Infinity;
+      if (titleOut >= 1) craneTitle.hidden = true;
+      if (age >= (endingReduced ? 1.8 : 2.8) && killAt === Infinity && button.hidden) {
+        button.querySelector("span")!.textContent = "Kill it";
+        button.querySelectorAll("svg").forEach(icon => icon.setAttribute("hidden",""));
+        button.hidden = button.disabled = false;
+        if (keyboardAction) button.focus({preventScroll:true});
+      }
+      if (shot > 0) {
+        craneTitle.hidden = true;
+        craneQuestion.hidden = false;
+        const fadeIn = ease(0.25, 1.05, shot);
+        const fadeOut = ease(3.7, 4.5, shot);
+        craneQuestion.style.opacity = String(fadeIn * (1 - fadeOut));
+      }
+      if (done) { sound.returnToPortfolio(); canvas.style.filter = ""; showPortfolio(); }
+      else if (shot > 6.3) canvas.style.filter = "grayscale("+ease(6.3,7.35,shot)+")";
+      return;
+    }
     if (ending && !startingTelevision) {
       spaceTime += dt;
       if (stage !== "tv-float") {
@@ -749,15 +772,12 @@ async function start() {
           spaceTimeline = televisionFallStart;
           setStage("tv-float");
         }
-        sound.setSpace(spaceTimeline);
+        if (stage === "tv-fall" && spaceTimeline >= televisionGone) setStage("camera-dive");
+        sound.setSpace(spaceTimeline, cameraDiveSwells(spaceTimeline, endingReduced));
       }
-      if (stage === "end") {
-        ending.render(renderer, spaceTime, spaceTimeline, endingReduced, w / h);
-        const revealAt = endingReduced ? 3.3 : 5.0;
-        if (!endingReduced && age > revealAt - 1.1) {
-          canvas.style.filter = "grayscale(" + ease(revealAt - 1.1, revealAt, age) + ")";
-        }
-        if (revealRequested || age >= revealAt) showPortfolio();
+      if (stage === "camera-dive") {
+        const done = ending.render(renderer, spaceTime, spaceTimeline, endingReduced, w / h);
+        if (done) setStage("end");
         return;
       }
     }
@@ -854,8 +874,8 @@ async function start() {
       const freedFor = released ? releaseElapsed - breakDelay : -1;
       const clearing = ease(0, reduced ? 3 : 8, freedFor);
       env.uniforms.uClearing.value = clearing;
-      sound.followThunder();
-      if (stage === "releasing" && clearing > 0.64) sound.score("drift");
+
+
       skylight.color.lerpColors(stormLight, sunsetLight, clearing);
       sun.intensity *= T.MathUtils.lerp(0.28, 1, clearing);
       const pause = reduced ? 0.69 : 2.15,
@@ -1276,7 +1296,7 @@ async function start() {
 
     if (ending) {
       ending.capture(renderer, scene, camera, spaceTime);
-      if (ending.render(renderer, spaceTime, spaceTimeline, endingReduced, w / h)) setStage("end");
+      ending.render(renderer, spaceTime, spaceTimeline, endingReduced, w / h);
       if (startingTelevision) sound.startTelevision(endingReduced);
       return;
     }

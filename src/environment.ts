@@ -90,6 +90,7 @@ export function createEnvironment(
 ) {
   const uniforms = {
     uTime: { value: 0 },
+    uExposure: { value: 1 },
     uSkyMotion: { value: 1 },
     uDive: { value: 0 },
     uCut: { value: 0 },
@@ -138,6 +139,7 @@ export function createEnvironment(
       vertexShader: `varying vec2 vScreen; void main(){vScreen=position.xy; gl_Position=vec4(position.xy,.99999,1.);}`,
       fragmentShader: `
     varying vec2 vScreen;
+    uniform float uExposure;
     uniform mat4 uCameraWorld,uInvProj,uViewProjection;
     uniform sampler2D uSand;
     uniform vec3 uCamera,uAnchor;
@@ -178,7 +180,7 @@ export function createEnvironment(
         wet*=mix(vec3(.70,.79,.85),vec3(1.),uClearing);
         col=mix(col,wet,smoothstep(-.016,.006,line));
       }
-      gl_FragColor=vec4(col,1.);
+      gl_FragColor=vec4(col*uExposure,1.);
     }`,
     }),
   );
@@ -214,7 +216,7 @@ export function createEnvironment(
       fragmentShader: `
     varying vec3 vWorld; varying float vFromCut;
     uniform vec3 uCamera,uBoat;
-    uniform float uMirrorHeight,uReflectionStrength;
+    uniform float uMirrorHeight,uReflectionStrength,uExposure;
     uniform float uTime,uDive,uContact,uWake,uImpact;
     uniform vec2 uOceanOrigin;
     uniform vec4 uBreaches[6],uHullBounds,uSnap;
@@ -329,7 +331,7 @@ export function createEnvironment(
       col=mix(col,vec3(.36,.66,.60),rim*.85);
       float air=1.-exp(-dist*.0028);
       col=mix(col,sky(vec3(-V.x,.002,-V.z)),clamp(air*.66,0.,1.));
-      gl_FragColor=vec4(col,1.);
+      gl_FragColor=vec4(col*uExposure,1.);
     }`,
     }),
   );
