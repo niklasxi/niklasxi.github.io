@@ -102,7 +102,8 @@ export async function loadCrane(landscape: Promise<T.Texture[]>) {
 
   return function renderCrane(renderer: T.WebGLRenderer, age: number, aspect: number,
     reduced: boolean, rustle: (beat: number, strength: number) => void, foley: (cue: number) => void, killAt = Infinity) {
-    const duration = reduced ? 10.5 : 13.2;
+    const desktopSpread = reduced ? 0 : ease(1.05, 1.75, aspect);
+    const duration = reduced ? 10.5 : 15.5;
     const t = Math.min(age, killAt);
     const entering = age < previousAge;
     if (entering) choosePath(reduced);
@@ -129,7 +130,10 @@ export async function loadCrane(landscape: Promise<T.Texture[]>) {
     const progress = segment / 6;
     const halfWidth = distance * Math.tan(T.MathUtils.degToRad(17.5)) * aspect;
     path.getPoint(progress, bird.position);
-    const flightWidth = Math.min(.82 * halfWidth, 4.8);
+    const compactWidth = Math.min(.82 * halfWidth, 4.8);
+    // Waypoints already alternate sides. Use more of the desktop frustum
+    // for those sweeps while the camera-space bounds protect the wingtips.
+    const flightWidth = T.MathUtils.lerp(compactWidth, 1.55 * halfWidth, desktopSpread);
     bird.position.x *= flightWidth;
     // Look through the bend over a short section of the path, so tight
     // spline tangents cannot whip the nose around in a single frame.
