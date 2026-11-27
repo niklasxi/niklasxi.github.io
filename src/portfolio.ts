@@ -6,6 +6,20 @@ const sheet = document.querySelector<HTMLButtonElement>("#newspaper-sheet")!;
 const turn = document.querySelector<HTMLButtonElement>("#turn-newspaper")!;
 export const newspaper = sheet.querySelector<HTMLImageElement>(".newspaper-front")!;
 export const reversePage = sheet.querySelector<HTMLImageElement>(".newspaper-back")!;
+const about = document.querySelector<HTMLButtonElement>("#about-button")!;
+const dialog = document.querySelector<HTMLDialogElement>("#about-page")!;
+let craneView: Promise<() => void> | undefined;
+about.addEventListener("click", async () => {
+  dialog.showModal();
+  try {
+    craneView ??= import("./aboutCranes").then(module => module.createAboutCranes(dialog));
+    const draw = await craneView;
+    if (dialog.open) draw();
+  } catch (error) {
+    craneView = undefined;
+    console.warn("The hanging crane model could not be loaded.", error);
+  }
+});
 const finalEdition = sheet.querySelector<HTMLCanvasElement>(".newspaper-final")!;
 reversePage.src = backPageUrl;
 let frontLabel = "Fold the newspaper. Front page: AI Harvesting Humans.";
@@ -56,6 +70,7 @@ export function resetNewspaper() {
   showSide(false);
   sheet.disabled = false;
   turn.hidden = turn.disabled = false;
+  about.hidden = finalEdition.hidden;
   sheet.focus({ preventScroll: true });
 }
 
@@ -64,6 +79,7 @@ export async function zoomOutFromCover(cover: ReturnType<typeof revealFinalEditi
   showSide(false);
   sheet.disabled = true;
   turn.hidden = turn.disabled = true;
+  about.hidden = true;
   const page = sheet.getBoundingClientRect();
   const view = portfolio.getBoundingClientRect();
   const units = page.width / finalEdition.width;

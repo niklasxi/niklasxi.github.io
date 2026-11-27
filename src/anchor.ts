@@ -10,10 +10,10 @@ export interface WaterLight {
 
 // Evaluate the same water surface as the hull. The optical path begins at
 // the wave surface and ends at the actual fragment, including instanced links.
-export function submerge(material: T.MeshStandardMaterial, water: WaterLight) {
+export function submerge(material: T.MeshStandardMaterial, water: WaterLight, stableLighting = false) {
   const prepare = material.onBeforeCompile.bind(material);
   const baseKey = material.customProgramCacheKey();
-  material.customProgramCacheKey = () => baseKey + "-underwater";
+  material.customProgramCacheKey = () => baseKey + (stableLighting ? "-underwater-steady" : "-underwater");
   material.onBeforeCompile = (shader, renderer) => {
     prepare(shader, renderer);
     shader.uniforms.uTime = water.uTime;
@@ -39,15 +39,17 @@ export function submerge(material: T.MeshStandardMaterial, water: WaterLight) {
       shader.fragmentShader.replace(
         "#include <opaque_fragment>",
         `
-      float depth = heightAt(vWaterWorld.xz,uTime) - vWaterWorld.y;
+      float depth = ${stableLighting ? "uTide" : "heightAt(vWaterWorld.xz,uTime)"} - vWaterWorld.y;
       float wet = smoothstep(-.012,.055,depth);
       float path = length(vWaterWorld-cameraPosition) *
         clamp(depth/max(.08,cameraPosition.y-vWaterWorld.y),0.,1.);
       vec3 extinction = exp(-vec3(.21,.082,.063)*path);
+      vec3 filtered = outgoingLight * exp(-max(depth,0.)*vec3(.26,.075,.058));
+      ${stableLighting ? "" : `
       vec2 pattern = (vWaterWorld.xz - vec2(.24,-.13)*(vWaterWorld.y+3.65))*1.32;
       float lightBands = caustic(pattern,uTime);
-      vec3 filtered = outgoingLight * exp(-max(depth,0.)*vec3(.26,.075,.058));
       filtered *= 1. + lightBands * .68;
+      `}
       vec3 scatter = vec3(.004,.084,.087);
       outgoingLight = mix(outgoingLight,filtered*extinction + scatter*(1.-extinction),wet);
       #include <opaque_fragment>`,

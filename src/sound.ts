@@ -4,6 +4,7 @@ import thunderUrl from "./assets/dry-thunder.mp3?url";
 import splashUrl from "./assets/water-splash.mp3?url";
 import foldUrl from "./assets/paper-folds.wav?url";
 import chainPullUrl from "./assets/chain-pull.wav?url";
+import flashUrl from "./assets/kauasilbershlachparodes-camera-flash-494027.mp3?url";
 import chainBreakUrl from "./assets/chain-break.wav?url";
 
 // The edited track follows the half fold, corners, brim, pocket folds and hull opening.
@@ -40,6 +41,8 @@ export function prepareSound() {
   const foldData = preloadEffect(foldUrl);
   const pullData = preloadEffect(chainPullUrl);
   const breakData = preloadEffect(chainBreakUrl);
+  const flashData = preloadEffect(flashUrl);
+  let flashBuffer: AudioBuffer | undefined;
   let pullBuffer: AudioBuffer | undefined;
   let breakBuffer: AudioBuffer | undefined;
   let pulling: AudioBufferSourceNode | undefined;
@@ -67,6 +70,7 @@ export function prepareSound() {
   let spaceSubGain: GainNode | undefined;
   let spaceDroneGain: GainNode | undefined;
   let spaceFilter: BiquadFilterNode | undefined;
+  let spaceRumbleGain: GainNode | undefined;
   let spaceHumGain: GainNode | undefined;
   let spaceWhine: OscillatorNode | undefined;
   let spaceWhineGain: GainNode | undefined;
@@ -194,6 +198,8 @@ export function prepareSound() {
     const sub = tone("triangle", 24.5, 0.045);
     spaceDroneGain = drone.gain;
     spaceSubGain = sub.gain;
+    // A low harmonic stays audible on speakers that roll off the sub-bass.
+    spaceRumbleGain = tone("sine", 73.4, 0).gain;
     if (airBuffer) {
       const noise = context.createBufferSource();
       noise.buffer = airBuffer;
@@ -229,8 +235,9 @@ export function prepareSound() {
     const now = context.currentTime;
     const fall = smoothstep(10.3, 15.4, time);
     const tail = 1 - 0.70 * smoothstep(15.55, 17.9, time);
-    if (spaceSubGain) spaceSubGain.gain.setTargetAtTime((0.044 + 0.116 * fall) * tail + 0.126 * cameraDive, now, 0.12);
-    if (spaceDroneGain) spaceDroneGain.gain.setTargetAtTime((0.062 + 0.053 * fall) * tail + 0.068 * cameraDive, now, 0.15);
+    if (spaceSubGain) spaceSubGain.gain.setTargetAtTime((0.044 + 0.24 * fall) * tail + 0.23 * cameraDive, now, 0.12);
+    if (spaceDroneGain) spaceDroneGain.gain.setTargetAtTime((0.062 + 0.145 * fall) * tail + 0.14 * cameraDive, now, 0.15);
+    spaceRumbleGain?.gain.setTargetAtTime(0.075 * fall * tail + 0.105 * cameraDive, now, 0.16);
     if (spaceFilter) spaceFilter.frequency.setTargetAtTime(95 + 240 * fall + 380 * cameraDive, now, 0.12);
     if (spaceHumGain) {
       spaceHumGain.gain.setTargetAtTime(1 - smoothstep(13.5, 15.5, time), now, 0.15);
@@ -253,7 +260,7 @@ export function prepareSound() {
     oscillator.frequency.exponentialRampToValueAtTime(22, now + 1.7);
     const gain = context.createGain();
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.22, now + 0.02);
+    gain.gain.linearRampToValueAtTime(0.38, now + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.4);
     oscillator.connect(gain).connect(output);
     oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
@@ -267,7 +274,7 @@ export function prepareSound() {
     const sources = spaceSources;
     spaceGain = undefined;
     spaceSources = [];
-    spaceSubGain = spaceDroneGain = spaceFilter = spaceHumGain = undefined;
+    spaceSubGain = spaceDroneGain = spaceRumbleGain = spaceFilter = spaceHumGain = undefined;
     spaceWhine = undefined;
     spaceWhineGain = undefined;
     spaceImpacted = false;
@@ -403,6 +410,9 @@ export function prepareSound() {
       creaseFilter.Q.value = 0.6;
       creaseFilter.connect(output);
 
+      void flashData.then(async (data) => {
+        if (data) flashBuffer = await context.decodeAudioData(data);
+      }).catch(() => {});
       void pullData
         .then(async (data) => {
           if (data) pullBuffer = await context.decodeAudioData(data);
@@ -527,6 +537,17 @@ export function prepareSound() {
         playPaper(foldBuffer, offset, seconds * rate / foldBuffer.duration, seconds, 0.59, 0, creaseFilter);
       }
     },
+    newspaperFlash() {
+      if (!audio || !flashBuffer) return;
+      const { context, output } = audio;
+      const source = context.createBufferSource();
+      source.buffer = flashBuffer;
+      const gain = context.createGain();
+      gain.gain.value = 0.5;
+      source.connect(gain).connect(output);
+      source.onended = () => { source.disconnect(); gain.disconnect(); };
+      source.start();
+    },
     dolphinBreath(pan: number, distance: number) {
       if (!audio || !airBuffer || audio.context.state !== "running") return;
       const { context, output } = audio;
@@ -544,12 +565,12 @@ export function prepareSound() {
       const lowpass = context.createBiquadFilter();
       lowpass.type = "lowpass";
       lowpass.Q.value = 0.65;
-      lowpass.frequency.setValueAtTime(4800, now);
-      lowpass.frequency.exponentialRampToValueAtTime(3200, exhaleEnd);
+      lowpass.frequency.setValueAtTime(4100, now);
+      lowpass.frequency.exponentialRampToValueAtTime(2950, exhaleEnd);
       lowpass.frequency.setValueAtTime(2900, inhaleStart);
-      lowpass.frequency.exponentialRampToValueAtTime(5800, now + 0.75);
+      lowpass.frequency.exponentialRampToValueAtTime(4900, now + 0.75);
       const envelope = context.createGain();
-      const attenuation = Math.min(1, 35 / Math.max(1, distance)) ** 1.5;
+      const attenuation = 0.82 * Math.min(1, 32 / Math.max(1, distance)) ** 1.5;
       // The puff falls away. After a small gap, the intake swells upward
       // and closes quickly while the dolphin is still above the water.
       envelope.gain.setValueAtTime(0, now);

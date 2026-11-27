@@ -8,8 +8,6 @@ import stormUrl from "./assets/storm-sky.webp?url";
 import skyUrl from "./assets/sunset-sky.webp?url";
 import rippleUrl from "./assets/capillary-waves.webp?url";
 import sandUrl from "./assets/seabed.webp?url";
-import swimUrl from "./assets/aurelia-swim.webp?url";
-import { createJellyfish } from "./jellyfish";
 import { createDolphins } from "./dolphins";
 import { bakeHullMask } from "./hullMask";
 import { createSeaMist } from "./seaMist";
@@ -49,6 +47,7 @@ type Stage =
   | "end";
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
+const skipSequence = document.querySelector<HTMLButtonElement>("#skip-sequence")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
 const driftHeadings =
   document.querySelectorAll<HTMLHeadingElement>(".drift-heading");
@@ -58,6 +57,7 @@ const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
 const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
 const lightTitle = document.querySelector<HTMLElement>("#light-title")!;
 const tvTitle = document.querySelector<HTMLElement>("#tv-title")!;
+const voidTitle = document.querySelector<HTMLElement>("#void-title")!;
 const craneTitle = document.querySelector<HTMLElement>("#crane-title")!;
 const craneCredit = document.querySelector<HTMLElement>("#crane-credit")!;
 const craneQuestion = document.querySelector<HTMLElement>("#crane-question")!;
@@ -75,12 +75,11 @@ async function start() {
   });
   renderer.setClearColor(0x000000, 0);
   const loader = new T.TextureLoader();
-  const atlasReady = loader.loadAsync(swimUrl).catch(() => null);
   const landscape = Promise.all([skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, deskUrl].map(url => loader.loadAsync(url)));
   const [[sky, storm, ripples, sand, grain, deskTexture], television, renderCrane] = await Promise.all([
     landscape,
     loadTelevision(),
-    loadCrane(landscape, atlasReady),
+    loadCrane(landscape, renderer),
     newspaper.decode(),
     reversePage.decode(),
   ]);
@@ -132,6 +131,7 @@ async function start() {
   paper.uniforms.uBackPrint.value = backPage;
   const plane = createPlane();
   const springs = createPaperSprings();
+  const flexBoat = createFlexiblePaper(boatGeometry, 5);
   const flexPlane = createFlexiblePaper(plane.geometry, 12);
   let planePattern = false, flexStrength = 0, flexWind = 0;
   const splash = createSplash(scene);
@@ -139,8 +139,6 @@ async function start() {
   const bowSpray = createBowSpray(scene, env.uniforms.uTide);
   const snapSplash = createBreachSplashes(scene, [env.uniforms.uSnap.value], env.uniforms.uTide, "Bow release", false);
   let dolphins: Awaited<ReturnType<typeof createDolphins>> | undefined;
-  const atlas = await atlasReady;
-  const jellyfish = atlas && createJellyfish(scene, atlas);
   paper.fold(1);
   const mask = bakeHullMask(renderer, paper.mesh.geometry);
   env.uniforms.uHullMask.value = mask.texture;
@@ -269,6 +267,7 @@ async function start() {
     canvas.dataset.stage = s;
     lightTitle.hidden = s !== "last-light";
     tvTitle.hidden = s !== "tv-float";
+    voidTitle.hidden = true;
     if (s === "end") {
       sound.endSpace(0.13);
     }
@@ -425,17 +424,21 @@ async function start() {
     narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
   }
 
+  function startRelease() {
+    breakDelay = reduced ? 0.96 : 2.25;
+    releaseElapsed = 0;
+    releaseWaveTime = 0;
+    setStage("releasing", reduced ? 4.5 : 8.6);
+  }
+
   function activate(event: MouseEvent) {
     if (button.disabled) return;
     if (stage !== "sheet" && stage !== "crane") sound.click();
     keyboardAction = event.detail === 0;
     if (stage === "surface") setStage("descending", reduced ? 0.85 : 3.55);
     else if (stage === "anchored") {
-      breakDelay = reduced ? 0.96 : 2.25;
+      startRelease();
       sound.pullChain(breakDelay);
-      releaseElapsed = 0;
-      releaseWaveTime = 0;
-      setStage("releasing", reduced ? 4.5 : 8.6);
     } else if (stage === "drift" && headingIndex < lastDriftHeading) {
       skipToWhatComesNext();
     } else if (stage === "drift" && findOutShown) {
@@ -617,6 +620,17 @@ async function start() {
   });
 
   let revealNews = false;
+  let skipRequest: MouseEvent | undefined;
+  skipSequence.addEventListener("click", (event) => {
+    if (returned) {
+      document.querySelector("#newspaper-sheet")?.getAnimations().forEach(animation => animation.finish());
+    } else {
+      skipRequest = event;
+    }
+  });
+  skipSequence.addEventListener("keydown", event => {
+    if (event.repeat && (event.key === "Enter" || event.key === " ")) event.preventDefault();
+  });
 
   function showPortfolio() {
     revealNews = false;
@@ -633,13 +647,17 @@ async function start() {
     }
     portfolio.hidden = false;
     document.querySelector<HTMLElement>("main")!.hidden = true;
+    skipSequence.hidden = !edition || endingReduced;
     const prepareReplay = edition && !endingReduced
       ? zoomOutFromCover(edition.cover)
       : Promise.resolve(resetNewspaper());
-    void prepareReplay.then(() => waitForPortfolioClick(() => {
-      sound.start();
-      sound.click();
-    })).then((back) => {
+    void prepareReplay.then(() => {
+      skipSequence.hidden = true;
+      return waitForPortfolioClick(() => {
+        sound.start();
+        sound.click();
+      });
+    }).then((back) => {
       openFromBack = back;
       returning = returned = false;
       planePattern = false;
@@ -679,6 +697,70 @@ async function start() {
     }
     const dt = last ? Math.min(0.12, (stamp - last) / 1000) : 0;
     last = stamp;
+    let airStep = dt;
+    const skip = skipRequest;
+    skipRequest = undefined;
+    if (skip && started) {
+      keyboardAction = skip.detail === 0;
+      if (returning) {
+        returnAge = Infinity;
+      } else {
+        // Follow the usual interaction path for stages that wait for input.
+        if (stage === "drift") {
+          driftHeadings.forEach(title => { title.hidden = true; });
+          headingIndex = lastDriftHeading;
+          showFindOut();
+          activate(skip);
+        } else if (stage === "surface" || stage === "descending" || stage === "anchored") {
+          startRelease();
+        } else if (stage === "sheet" || stage === "tv-float") {
+          activate(skip);
+        }
+        switch (stage) {
+          case "intro":
+          case "descending":
+          case "last-light":
+          case "blackout":
+            age = stageDuration;
+            break;
+          case "releasing":
+            age = releaseElapsed = stageDuration;
+            break;
+          case "transform":
+          case "folding":
+            airStep = Math.max(dt, stageDuration - age);
+            age = stageDuration;
+            break;
+          case "flight":
+            age = reduced ? 1.7 : 3.8;
+            break;
+          case "space":
+            spaceTimeline = televisionFallStart;
+            break;
+          case "tv-fall":
+            spaceTimeline = televisionGone;
+            break;
+          case "camera-dive":
+            setStage("end");
+            break;
+          case "end":
+            setStage("crane");
+            break;
+          case "crane":
+            if (killAt === Infinity) {
+              killAt = age;
+              button.hidden = button.disabled = true;
+              age += endingReduced ? 7.35 : 9.65;
+            } else if (!button.hidden) {
+              activate(skip);
+            } else {
+              age = killAt + (endingReduced ? 7.35 : 9.65);
+            }
+            break;
+        }
+        if (keyboardAction) skipSequence.focus({ preventScroll: true });
+      }
+    }
     if (returning) {
       returnAge += dt;
       const duration = reduced ? 0.75 : 2.7;
@@ -741,7 +823,11 @@ async function start() {
       setStage("space");
     }
     if (stage === "end") {
-      if (age >= (endingReduced ? 1.2 : 2.4)) setStage("crane");
+      const titleStart = endingReduced ? .25 : .65;
+      const craneStart = endingReduced ? 2 : 3.9;
+      voidTitle.hidden = age < titleStart;
+      voidTitle.style.opacity = String(1 - ease(craneStart - .65, craneStart, age));
+      if (age >= craneStart) setStage("crane");
       return;
     }
     if (stage === "crane") {
@@ -767,6 +853,7 @@ async function start() {
         craneQuestion.style.opacity = String(fadeIn * (1 - fadeOut));
       }
       if (done && revealNews) {
+        sound.newspaperFlash();
         sound.returnToPortfolio();
         showPortfolio();
       } else if (done && button.hidden) {
@@ -1122,7 +1209,6 @@ async function start() {
         sound.land();
       }
       details.update(dive, time);
-      jellyfish?.(dive, time);
       seaMist.update(
         dt,
         time,
@@ -1175,17 +1261,16 @@ async function start() {
       }
       sound.setDepth(0);
       details.update(0, time);
-      jellyfish?.(0, time);
       tether.update(time, 999, false, 0, reduced);
 
-      airAge += dt;
+      airAge += airStep;
       const elapsed = airAge;
       const foldAge = elapsed - foldStartedAt;
       const unfold = ease(timing.launchEnd, timing.openEnd, elapsed);
       const fold = T.MathUtils.clamp(foldAge / timing.foldDuration, 0, 1);
       const glideTime = Math.max(0, foldAge - timing.foldDuration);
       const motionScale = reduced ? 0.38 : 1;
-      const air = flight.step(dt, elapsed, foldAge, time, departureDirection, timing, reduced);
+      const air = flight.step(airStep, elapsed, foldAge, time, departureDirection, timing, reduced);
       const { position, velocity } = flight;
       if (!ending) {
         const windExposure = ease(0.18, timing.launchEnd + 0.65, elapsed) * (stage === "folding" ? 0.65 : 1);
@@ -1204,11 +1289,11 @@ async function start() {
       airEuler.set(air.pitch, -0.22 * air.roll, -air.roll, "YXZ");
       boat.quaternion.premultiply(airAttitude.setFromEuler(airEuler));
       if (!reduced) {
-        boat.quaternion.slerp(flight.sheet.attitude, ease(timing.openEnd - 0.32, timing.openEnd + 0.40, elapsed));
+        boat.quaternion.slerp(flight.sheet.attitude, unfold);
       }
       const bank = motionScale * (0.19 * Math.sin(fold * Math.PI) + 0.10 * Math.sin(glideTime * 0.41));
       orientPlane(velocity.x, velocity.y, velocity.z, bank);
-      if (!reduced && stage === "folding") {
+      if (!reduced && Number.isFinite(foldStartedAt)) {
         // Carry the sheet's angular momentum into the first crease and then
         // let the forming wings stabilize it in the current direction of travel.
         const rate = carriedSpin.length();
@@ -1217,7 +1302,7 @@ async function start() {
           foldingAttitude.multiply(spinStep.setFromAxisAngle(carriedSpin, rate * dt));
           carriedSpin.multiplyScalar(rate * Math.exp(-dt * 3.7));
         }
-        foldingAttitude.rotateTowards(planeQuat, dt * (0.20 + 5.1 * ease(0.12, 0.76, fold)));
+        foldingAttitude.slerp(planeQuat, skip ? 1 : 1 - Math.exp(-dt * (0.12 + 3.6 * fold * fold)));
         boat.quaternion.copy(foldingAttitude);
       } else {
         boat.quaternion.slerp(planeQuat, ease(0.04, 1, fold));
@@ -1228,28 +1313,29 @@ async function start() {
       boat.rotateX(-0.24 * finalGlide);
       boat.rotateY(0.17 * finalGlide);
       paper.uniforms.uFlight.value = ease(0, timing.launchEnd, elapsed);
+      flexStrength = unfold * unfold
+        * (1 - ease(0.08, 1, fold)) * motionScale;
+      flexWind = flexStrength * (1 - ease(0, 0.4, fold));
+      if (flexStrength > 0) {
+        const localPressure = reduced ? 0 : flight.sheet.pressure;
+        const localTwist = reduced ? 0 : flight.sheet.twist;
+        const load = 0.38 * (air.gust - 0.43 * velocity.y) + 0.15 * localPressure;
+        const twist = 0.36 * air.crosswind + 0.24 * air.rollRate + 0.17 * localTwist;
+        springs.step(dt, 0.25 + 0.65 * Math.tanh(load + twist),
+          0.05 + 0.58 * Math.tanh(load - twist));
+      }
       if (elapsed < timing.openEnd) {
         paper.fold(1 - unfold);
+        paper.mesh.geometry = flexBoat(springs.bend, flexStrength, time, flexWind);
         const openingDuration = timing.openEnd - timing.launchEnd;
         sound.openBoat((elapsed - timing.launchEnd) / openingDuration, openingDuration);
       } else {
         // Both crease patterns describe the same rectangle in identical UVs.
-        // Retessellate it while flat, before the first wind bend develops.
+        // Apply the same wind bend across the change in triangulation.
         planePattern = true;
         plane.fold(fold);
         sound.foldPlane(fold, timing.foldDuration);
         paper.uniforms.uFold.value = fold;
-        flexStrength = ease(timing.openEnd, timing.openEnd + 0.85, elapsed)
-          * (1 - ease(0, 0.62, fold)) * motionScale;
-        flexWind = flexStrength * (1 - ease(0, 0.4, fold));
-        if (flexStrength > 0) {
-          const localPressure = reduced ? 0 : flight.sheet.pressure;
-          const localTwist = reduced ? 0 : flight.sheet.twist;
-          const load = 0.38 * (air.gust - 0.43 * velocity.y) + 0.15 * localPressure;
-          const twist = 0.36 * air.crosswind + 0.24 * air.rollRate + 0.17 * localTwist;
-          springs.step(dt, 0.25 + 0.65 * Math.tanh(load + twist),
-            0.05 + 0.58 * Math.tanh(load - twist));
-        }
         if (fold === 1) plane.flutter(0.35 * motionScale * ease(0, 1.4, glideTime), time);
         paper.mesh.geometry = flexPlane(springs.bend, flexStrength, time, flexWind);
       }
@@ -1263,7 +1349,7 @@ async function start() {
         boatGeometry.computeBoundingBox();
         boatGeometry.boundingBox!.getCenter(foldCenter).applyQuaternion(boat.quaternion).add(position);
       }
-      trackedPosition.lerp(foldCenter, 1 - Math.exp(-dt * (reduced ? 8 : 5.2)));
+      trackedPosition.lerp(foldCenter, skip ? 1 : 1 - Math.exp(-dt * (reduced ? 8 : 5.2)));
       const back = Math.max(14.4, 10.4 / (2 * tan * aspect));
       const orbit = motionScale * (0.12 * unfold + 0.50 * ease(0, 1, fold));
       const elevation = 1.6 + 0.6 * unfold + 0.85 * ease(0.15, 1, fold);
@@ -1318,6 +1404,7 @@ async function start() {
     renderer.render(scene, camera);
     if (!started) {
       portfolio.hidden = true;
+      skipSequence.hidden = false;
       document.querySelector("main")!.removeAttribute("aria-hidden");
       canvas.setAttribute("aria-description", "Click the paper, or press Enter here, to unfold the newspaper.");
       canvas.tabIndex = 0;

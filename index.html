@@ -25,6 +25,7 @@
             <img class="newspaper-back" width="1408" height="1048" alt="" />
           </span>
         </button>
+        <div class="page-actions">
         <button id="turn-newspaper" type="button" aria-pressed="false">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M20 10a8 8 0 0 0-14-4L3 9m0 0h5M3 9V4m1 10a8 8 0 0 0 14 4l3-3m0 0h-5m5 0v5"
@@ -32,8 +33,16 @@
           </svg>
           Turn newspaper
         </button>
+        <button id="about-button" aria-haspopup="dialog" type="button" hidden>About me</button>
+        </div>
       </div>
     </div>
+    <dialog id="about-page" aria-labelledby="about-heading">
+      <canvas id="about-cranes" role="img" aria-label="Four origami cranes turning on a hanging thread"></canvas>
+      <div class="about-intro"><h1 id="about-heading">Hello, I’m Niklas.</h1>
+        <p>I study computer science at LMU and build great stuff.</p></div>
+      <form method="dialog"><button type="submit">Back to newspaper</button></form>
+    </dialog>
     <main aria-label="A Paper Ocean" aria-hidden="true">
       <canvas
         id="ocean"
@@ -92,6 +101,9 @@
         <h1 class="title-line"><span>No signal escapes</span></h1>
         <p>A TV signal is made of radio waves. Like visible light, they cannot escape from inside a black hole’s event horizon.</p>
       </div>
+      <h1 id="void-title" class="hero-title crane-title" hidden>
+        <span class="title-line"><span>Nothing stays nothing.</span></span>
+      </h1>
       <h1 id="crane-title" class="hero-title crane-title" hidden>
         <span class="title-line"><span>A thousand cranes.</span></span>
         <span class="title-line"><span>One wish.</span></span>
@@ -155,6 +167,7 @@
       <p id="narration" class="sr-only" aria-live="polite"></p>
       <noscript>Enable JavaScript to follow the paper boat.</noscript>
     </main>
+    <button id="skip-sequence" type="button" hidden>Skip sequence</button>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

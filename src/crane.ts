@@ -8,7 +8,7 @@ import { createFlexiblePaper, createPaperSprings } from "./paperFlex";
 import craneUrl from "../3d_origami_crane.glb?url";
 
 
-export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<T.Texture | null>) {
+export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: T.WebGLRenderer) {
   const { scene: model } = await new GLTFLoader().loadAsync(craneUrl);
   model.updateMatrixWorld(true);
   const mesh = model.getObjectByName("Object_3");
@@ -43,9 +43,9 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
   key.position.set(-3, 5, 4);
   scene.add(bird, fill, key);
   const camera = new T.PerspectiveCamera(35, 1, 0.07, 2600);
-  const ocean = createCraneOcean(camera, await landscape, await atlas);
+  const ocean = createCraneOcean(camera, await landscape);
   const springs = createPaperSprings();
-  const flex = createFlexiblePaper(geometry, 5);
+  const flex = createFlexiblePaper(geometry, 3);
   const ball = new T.Mesh(geometry, paper.clone());
   ball.material.onBeforeCompile = paper.onBeforeCompile;
   ball.frustumCulled = false;
@@ -70,11 +70,23 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
   const wideFocus = new T.Vector3();
   const deep = new T.Color(0x245759), black = new T.Color(0);
   const fog = new T.FogExp2(deep,.08);
+  let folded = false;
+  let restingLow = 0;
+  const attitudeForRest = new T.Quaternion();
+  const finalAttitude = new T.Euler();
+  const vertical = new T.Vector3();
+  let orbitPhase = 0;
+  // Compile the submerged materials before the interactive drop.
+  scene.fog = fog;
+  await setupRenderer.compileAsync(scene, camera);
+  scene.fog = null;
   let pathOffset = 0;
   let cueIndex = 0;
   const path = new T.CatmullRomCurve3();
   const direction = new T.Vector3();
   const flightRotation = new T.Quaternion();
+  const flightCenter = new T.Vector3(), flightVelocity = new T.Vector3();
+  const guide = new T.Vector3(), acceleration = new T.Vector3();
   const ahead = new T.Vector3();
   let heading = 0;
   let pitch = 0;
@@ -99,13 +111,15 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
     beat = 0;
     cueIndex = 0;
     pathOffset = 0;
+    orbitPhase = range(0, Math.PI * 2);
     springs.reset();
+    folded = false;
   }
 
   return function renderCrane(renderer: T.WebGLRenderer, age: number, aspect: number,
     reduced: boolean, rustle: (beat: number, strength: number) => void, foley: (cue: number) => void, killAt = Infinity) {
     const desktopSpread = reduced ? 0 : ease(1.05, 1.75, aspect);
-    const duration = reduced ? 10.5 : 15.5;
+    const travelDuration = reduced ? 21 : 31;
     const t = Math.min(age, killAt);
     const entering = age < previousAge;
     if (entering) choosePath(reduced);
@@ -119,13 +133,13 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
     camera.lookAt(0, 0.35, 0);
     camera.updateProjectionMatrix();
 
-    let segment = t * 6 / duration - pathOffset;
+    let segment = t * 6 / travelDuration - pathOffset;
     // Extend the path while the visible segment and heading samples still
     // have the same four spline control points after the shift.
     while (segment >= 4.5) {
-      const last = path.points[6];
+
       path.points.shift();
-      path.points.push(new T.Vector3(-Math.sign(last.x || 1)*range(.18,.46),range(-.5,.7),range(-1.1,1)));
+      path.points.push(new T.Vector3(range(.22,.46) * Math.cos(pathOffset * 1.21 + orbitPhase), range(-.48,.62), 1.5 * Math.sin(pathOffset * 1.21 + orbitPhase)));
       pathOffset++;
       segment--;
     }
@@ -145,6 +159,24 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
     direction.subVectors(ahead, direction);
     direction.x *= flightWidth;
     direction.normalize();
+    guide.copy(bird.position);
+    if (entering) {
+      flightCenter.copy(guide);
+      flightVelocity.copy(direction).multiplyScalar(.4);
+    } else if (age <= killAt) {
+      // Track the moving guide with a damped spring. The velocity carries
+      // the crane through each turn and also drives its actual heading.
+      const steps = Math.max(1, Math.ceil(dt * 90));
+      const h = dt / steps;
+      for (let i = 0; i < steps; i++) {
+        acceleration.subVectors(guide, flightCenter).multiplyScalar(7)
+          .addScaledVector(flightVelocity, -4.8);
+        flightVelocity.addScaledVector(acceleration, h);
+        flightCenter.addScaledVector(flightVelocity, h);
+      }
+    }
+    bird.position.copy(flightCenter);
+    if (flightVelocity.lengthSq() > .004) direction.copy(flightVelocity).normalize();
     if (t >= nextStroke) {
       strokeStart = t;
       period = range(0.56, 0.92) * (reduced ? 1.22 : 1);
@@ -175,7 +207,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
         0.35 + span * Math.sin(bend) + height * Math.cos(bend));
     }
     positions.needsUpdate = true;
-    bird.position.y -= 0.07 * stroke;
+
     camera.updateMatrixWorld();
     viewPoint.copy(bird.position).applyMatrix4(camera.matrixWorldInverse);
     const tangent = Math.tan(T.MathUtils.degToRad(camera.fov / 2));
@@ -193,8 +225,8 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
       heading = entering ? targetHeading : heading + headingStep;
       pitch = entering ? targetPitch : T.MathUtils.lerp(pitch, targetPitch, response);
       const turnRate = dt > 0 ? headingStep / dt : 0;
-      bank = entering ? 0 : T.MathUtils.lerp(bank, -.31 * turnRate / 2.25, response);
-      desired.set(pitch - .05 * stroke, heading, bank + .05 * stroke);
+      bank = entering ? 0 : T.MathUtils.lerp(bank, -.48 * turnRate / 2.25, 1 - Math.exp(-dt * 2.2));
+      desired.set(pitch, heading, bank);
       flightRotation.setFromEuler(desired);
     }
     bird.quaternion.copy(flightRotation);
@@ -204,38 +236,44 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
       const entry = shot-hitTime;
       const fall = T.MathUtils.clamp((shot-.27)/(hitTime-.27),0,1);
       const sink = T.MathUtils.clamp(entry/4.45,0,1);
-      const settle = ease(5.88,6.38,shot);
       const waterY = bird.position.y-2.9;
       const swell = reduced ? .39 : 1;
       const hitHeight = wave(ocean.impact.x, ocean.impact.z, hitTime, swell);
       oceanOffset.set(bird.position.x-ocean.impact.x,waterY-hitHeight,bird.position.z-ocean.impact.z);
       const load = Math.sin(shot*7.2)*crush*(1-crush);
-      const impact = Math.sin(settle*Math.PI*2)*(1-settle);
-      springs.step(dt,0.48*crush + load + .18*impact, -.32*crush - .55*load);
-      ball.geometry = flex(springs.bend,Math.max(.001,crush),shot,.07*crush*(1-crush));
-      const sheet = ball.geometry.getAttribute("position") as T.BufferAttribute;
+      if (!folded) {
+        springs.step(dt,0.48*crush + load, -.32*crush - .55*load);
+        ball.geometry = flex(springs.bend,Math.max(.001,crush),shot,.07*crush*(1-crush));
+        const sheet = ball.geometry.getAttribute("position") as T.BufferAttribute;
+        finalAttitude.copy(bird.rotation);
+        finalAttitude.z += .58 * (1 - ease(0,1.2,shot));
+        finalAttitude.x += 4.15;
+        finalAttitude.z += 2.35;
+        vertical.copy(up).applyQuaternion(attitudeForRest.setFromEuler(finalAttitude).invert());
+        let lowest = Infinity;
+        for (let i=0; i<sheet.count; i++) {
+          vertex.fromBufferAttribute(sheet,i);
+          vertex.y -= .35;
+          for (let j=0;j<creases.length;j++) {
+            const {normal,axis,offset,angle} = creases[j];
+            const excess = vertex.dot(normal)-offset;
+            if (excess <= 0) continue;
+            const fold = ease(.01+j*.023,.16+j*.028,shot);
+            hinge.copy(vertex).addScaledVector(normal,-excess);
+            vertex.sub(hinge).applyAxisAngle(axis,angle*fold).add(hinge);
+          }
+          vertex.y += .35*(1-crush);
+          sheet.setXYZ(i,vertex.x,vertex.y,vertex.z);
+          lowest = Math.min(lowest,vertex.dot(vertical));
+        }
+        sheet.needsUpdate = true;
+        restingLow = lowest;
+        folded = shot >= .34;
+      }
       ball.rotation.copy(bird.rotation);
       ball.rotation.x += fall*2.4 + sink*1.75;
       ball.rotation.z += fall*1.5 + sink*.85 + .16*Math.sin(sink*6.28);
-      const vertical = up.clone().applyQuaternion(ball.quaternion.clone().invert());
-      let lowest = Infinity;
-      for (let i=0; i<sheet.count; i++) {
-        vertex.fromBufferAttribute(sheet,i);
-        vertex.y -= .35;
-        for (let j=0;j<creases.length;j++) {
-          const {normal,axis,offset,angle} = creases[j];
-          const excess = vertex.dot(normal)-offset;
-          if (excess <= 0) continue;
-          const fold = ease(.01+j*.023,.16+j*.028,shot);
-          hinge.copy(vertex).addScaledVector(normal,-excess);
-          vertex.sub(hinge).applyAxisAngle(axis,angle*fold).add(hinge);
-        }
-        vertex.y += .35*(1-crush);
-        sheet.setXYZ(i,vertex.x,vertex.y,vertex.z);
-        lowest = Math.min(lowest,vertex.dot(vertical));
-      }
-      sheet.needsUpdate = true;
-      const floorY = oceanOffset.y + seabed - lowest*.45;
+      const floorY = oceanOffset.y + seabed - restingLow*.45;
       ball.scale.setScalar(1-.55*ease(.2,2.15,shot));
       ball.position.copy(bird.position);
       ball.position.y -= 2.9*fall*fall;
@@ -264,10 +302,12 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, atlas: Promise<
       camera.lookAt(focus);
       const surfaceY = wave(ocean.impact.x, ocean.impact.z, shot, swell);
       const wet = ease(-.06,.32,wave(camera.position.x,camera.position.z,shot,swell)-camera.position.y);
+      // Keep object lighting independent of individual crests crossing the lens.
+      const underwater = ease(hitTime, hitTime + 1.1, shot);
       fog.color.copy(deep);
-      fog.density=.085*wet;
+      fog.density = .085 * underwater * (1 - .58 * pullback);
       scene.fog=fog;
-      scene.background = fog.color.copy(black).lerp(deep,wet);
+      scene.background = black;
       if (entry < 0) ocean.reflect(renderer,scene,focus,surfaceY);
       ocean.update(shot,entry,reduced,renderer.domElement.height,wet,surfaceY,pullback);
       const cues = [0,hitTime];

@@ -1,12 +1,12 @@
 import * as T from "three";
-import { createEnvironment } from "./environment";
-import { createTether, createSeabedDetails } from "./tether";
+import { forgedSteel, makeAnchor, submerge } from "./anchor";
+import { createEnvironment, seabed } from "./environment";
+import { createSeabedDetails } from "./tether";
 import { createSplash } from "./splash";
-import { createJellyfish } from "./jellyfish";
 import { ease } from "./waves";
 
 
-export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, ripples, sand]: T.Texture[], atlas: T.Texture | null) {
+export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, ripples, sand]: T.Texture[]) {
   const world = new T.Scene();
   const mirror = new T.PerspectiveCamera();
   const reflected = new T.WebGLRenderTarget(480, 320);
@@ -14,17 +14,20 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
   const env = createEnvironment(sky, storm, ripples, sand, camera, reflected, empty);
   const un = env.uniforms;
   world.add(env.background, env.water);
-  const tether = createTether(world, new T.Group(), null, un);
-  un.uAnchor.value.copy(tether.anchor.position);
-  tether.update(0,10,true,0,false);
-  tether.attachedHalf.visible=false;
-  const details=createSeabedDetails(world);
-  const jellyfish = atlas && createJellyfish(world, atlas);
-  const splash=createSplash(world);
-  const impact=tether.looseLink.position.clone().add(new T.Vector3(-.5,0,.25)).setY(0);
+  const steel = forgedSteel();
+  submerge(steel, un, true);
+  const { anchor } = makeAnchor(steel);
+  anchor.position.set(.84, seabed - .025, .58);
+  anchor.rotation.set(.13, -.39, -.28);
+  world.add(anchor);
+  un.uAnchor.value.copy(anchor.position);
+  const details = createSeabedDetails(world);
+  const splash = createSplash(world);
+  const impact = new T.Vector3(anchor.position.x - .65, 0, anchor.position.z + .45);
   const bubbles=new T.InstancedMesh(new T.SphereGeometry(1,8,6),
     new T.MeshPhongMaterial({color:0x629998,specular:0xffffff,shininess:75,transparent:true,opacity:.54}),100);
   const seeds=Array.from({length:bubbles.count},()=>({angle:Math.random()*Math.PI*2,r:Math.random(),speed:Math.random(),delay:Math.random()}));
+  bubbles.frustumCulled = false;
   world.add(bubbles);
   const dummy=new T.Object3D();
   const lensEntry=new T.Vector3();
@@ -63,12 +66,8 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
       crossed=true;
       crossingTime=shot;
     }
-    const seabedVisibility = Math.max(wet, pullback);
-    tether.anchor.visible = seabedVisibility > .02;
-    tether.chain.visible = pullback < .5 && seabedVisibility > .02;
-    tether.looseLink.visible = tether.chain.visible;
-    details.update(seabedVisibility,shot);
-    jellyfish?.(pullback, shot);
+    // Water and seabed depth occlude submerged objects throughout the crossing.
+    details.update(1, shot);
     impact.y = surfaceY;
     splash(sinceImpact,impact,reduced,height);
     bubbles.visible=sinceImpact>=0 && sinceImpact<3;

@@ -26,6 +26,7 @@ export function createPaperFlight(flatPose: Quaternion) {
   let roll = 0, pitch = 0, rollRate = 0, pitchRate = 0;
   let gust = 0, crosswind = 0;
   function reset(start: Vector3, entrySpeed: number) {
+    sheet.reset(flatPose);
     position.copy(start);
     velocity.set(-0.91 * entrySpeed, 0, -0.42 * entrySpeed);
     roll = pitch = rollRate = pitchRate = gust = crosswind = 0;
@@ -69,7 +70,7 @@ export function createPaperFlight(flatPose: Quaternion) {
       const liftHeight = (reduced ? 4.8 : 7.2) + motion * gust * 0.48;
       const updraft = Math.max(0, 8.8 + (liftHeight - height) * 1.45) * pressure;
       const openingArea = ease(timing.launchEnd, liftReady, t);
-      const free = reduced ? 0 : ease(timing.openEnd - 0.32, timing.openEnd + 0.40, t) * (1 - fold);
+      const free = reduced ? 0 : loose;
       // The broad updraft keeps the shot above the waves. Local pressure
       // changes its path and spills lift when the face turns edge-on.
       const sheetLift = openingArea * (1 - fold) * updraft
