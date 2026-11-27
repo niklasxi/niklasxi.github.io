@@ -265,6 +265,8 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
+    releaseTitle.hidden = s !== "releasing";
+    releaseTitle.style.opacity = "";
     lightTitle.hidden = s !== "last-light";
     tvTitle.hidden = s !== "tv-float";
     voidTitle.hidden = true;
@@ -292,8 +294,6 @@ async function start() {
       landingTitle.style.opacity = "";
       chainTitle.hidden = true;
       chainTitle.style.opacity = "";
-      releaseTitle.hidden = true;
-      releaseTitle.style.opacity = "";
     }
     if (s === "drift") {
       driftHeadings[0].hidden = false;
@@ -313,8 +313,6 @@ async function start() {
     if (s === "releasing") {
       chainTitle.hidden = true;
       chainTitle.style.opacity = "";
-      releaseTitle.hidden = false;
-      releaseTitle.style.opacity = "";
     }
     if (s === "surface") {
       landingTitle.hidden = false;
@@ -586,6 +584,7 @@ async function start() {
     if (!started || returning || returned || stage === "blackout" || ending) return;
     returning = true;
     canvas.dataset.stage = "unfolding";
+    releaseTitle.hidden = true;
     returnPosition.copy(boat.position);
     returnRotation.copy(boat.quaternion);
     returnScale.copy(boat.scale);
