@@ -10,6 +10,7 @@ export async function createDolphins(
   scene: T.Scene,
   footprints: T.Vector4[],
   mist: ReturnType<typeof createSeaMist>,
+  onExhale: (pan: number, distance: number) => void,
 ) {
   const gltf = await new GLTFLoader().loadAsync(dolphinUrl);
   const source = gltf.scene.getObjectByProperty("isMesh", true) as T.Mesh<
@@ -57,6 +58,7 @@ export async function createDolphins(
   );
   const blowhole = ray.intersectObject(new T.Mesh(geometry, material))[0].point;
   const breath = createDolphinBreath(scene);
+  const projectedBreath = new T.Vector3();
   const splashes = createBreachSplashes(scene, footprints);
   const pod = Array.from({ length: 3 }, (_, i) => {
     const mesh = new T.Mesh(geometry, material);
@@ -161,13 +163,17 @@ export async function createDolphins(
         "YZX",
       );
       if ((pass + i) % 3 === 0 && dolphin.previousPhase < 0.32 && u >= 0.32) {
-        breath.exhale(
+        const origin = breath.exhale(
           dolphin.mesh,
           blowhole,
           travel / duration,
           (4 * lift * (1 - 2 * u)) / duration,
           reduced,
         );
+        projectedBreath.copy(origin).project(camera);
+        if (projectedBreath.z < 1 && Math.abs(projectedBreath.x) < 1.15 && Math.abs(projectedBreath.y) < 1.15) {
+          onExhale(projectedBreath.x, camera.position.distanceTo(origin));
+        }
       }
       dolphin.previousPhase = u;
       dolphin.mesh.morphTargetInfluences![0] =

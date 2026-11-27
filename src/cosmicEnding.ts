@@ -27,6 +27,7 @@ export function frameLastLight(position: T.Vector3, sun: T.Vector3, aspect: numb
 }
 
 type Television = Awaited<ReturnType<typeof loadTelevision>>;
+export const televisionFallStart = 10.3;
 
 export function createCosmicEnding(tv: Television) {
   const scene = new T.Scene();
@@ -66,16 +67,14 @@ export function createCosmicEnding(tv: Television) {
       renderer.render(ocean, oceanCamera);
       renderer.setRenderTarget(null);
     },
-    render(renderer: T.WebGLRenderer, elapsed: number, reduced: boolean, aspect: number) {
+    render(renderer: T.WebGLRenderer, elapsed: number, t: number, reduced: boolean, aspect: number) {
       if (camera.aspect !== aspect) {
         camera.aspect = aspect;
         camera.updateProjectionMatrix();
       }
-      const rate = reduced ? 1.58 : 1;
-      const t = elapsed * rate;
       const reveal = ease(1.06, 6.8, t);
-      const drift = ease(5.4, 10.9, t);
-      const fall = ease(10.3, 15.4, t);
+      const drift = ease(5.4, televisionFallStart, t);
+      const fall = ease(televisionFallStart, 15.4, t);
       const motion = reduced ? 0.42 : 1;
       // Frame the curved glass edge-to-edge at the cut. Dolly back on an
       // exponential distance curve so the close and wide shots both linger.
@@ -87,13 +86,15 @@ export function createCosmicEnding(tv: Television) {
       const ox = (2 * center.x - 1) * tan * aspect;
       const oy = (2 * center.y - 1) * tan;
       const shortSide = Math.min(1, aspect);
-      const hangX = (-0.42 + 0.08 * drift) * tan * aspect;
-      const hangY = (0.04 + 0.18 * drift) * tan;
+      // Keep the bob and roll running while the story clock waits for End it.
+      const bob = motion * drift * (1 - fall);
+      const hangX = (-0.42 + 0.08 * drift + bob * 0.065 * Math.sin(elapsed * 0.52)) * tan * aspect;
+      const hangY = (0.04 + 0.18 * drift + bob * 0.081 * Math.sin(elapsed * 0.73)) * tan;
       const arc = Math.sin(Math.PI * fall);
       cabinet.rotation.set(
-        reveal * (0.12 + 0.07 * drift) + motion * 0.58 * fall,
-        reveal * (0.48 + motion * (0.20 * drift + 0.06 * Math.sin(t * 0.65))) + motion * 2.75 * fall,
-        reveal * (0.065 + motion * 0.08 * drift) - motion * 0.97 * fall,
+        reveal * (0.12 + 0.07 * drift) + bob * 0.048 * Math.sin(elapsed * 0.78) + motion * 0.58 * fall,
+        reveal * (0.48 + motion * 0.20 * drift) + bob * 0.1 * Math.sin(elapsed * 0.65) + motion * 2.75 * fall,
+        reveal * (0.065 + motion * 0.08 * drift) + bob * 0.068 * Math.sin(elapsed * 0.49) - motion * 0.97 * fall,
       );
       offset.copy(tv.screenCenter).applyQuaternion(cabinet.quaternion);
       cabinet.position.set(
@@ -102,6 +103,9 @@ export function createCosmicEnding(tv: Television) {
         -depth,
       );
       cabinet.visible = t < 15.4;
+      // Pull the set away at an exponential rate: the black hole stays the same
+      // size on screen, so the shrinking TV makes it feel enormous.
+      cabinet.scale.setScalar(Math.exp(-(reduced ? 1.7 : 2.2) * fall));
       const shadowDepth = 77;
       occultation.position.set(ox * shadowDepth, oy * shadowDepth, -shadowDepth);
       occultation.scale.setScalar(shadowDepth * tan * shortSide * 0.068);

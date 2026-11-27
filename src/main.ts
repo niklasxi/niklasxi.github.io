@@ -1,6 +1,8 @@
 import * as T from "three";
 import "./style.css";
-import { portfolio, waitForPortfolioClick } from "./portfolio";
+import { newspaper, portfolio, resetNewspaper, revealFinalEdition, reversePage, waitForPortfolioClick, zoomOutFromCover } from "./portfolio";
+import { createOpeningDesk } from "./openingDesk";
+import deskUrl from "./assets/newspaper-desk.webp?url";
 import grainUrl from "./assets/paper-grain.webp?url";
 import stormUrl from "./assets/storm-sky.webp?url";
 import skyUrl from "./assets/sunset-sky.webp?url";
@@ -15,13 +17,13 @@ import { createBreachSplashes } from "./breachSplash";
 import { createBowSpray } from "./bowSpray";
 import { createSplash } from "./splash";
 import { prepareSound } from "./sound";
+import type { ScoreCue } from "./score";
 import { createPaper } from "./paper";
 import { createPaperSprings, createFlexiblePaper } from "./paperFlex";
-import { createCosmicEnding, frameLastLight } from "./cosmicEnding";
+import { createCosmicEnding, frameLastLight, televisionFallStart } from "./cosmicEnding";
 import { loadTelevision } from "./television";
 import { createPlane } from "./plane";
 import { createPaperFlight, flightTiming } from "./paperFlight";
-import starUrl from "../references/04-space.png?url";
 import { createEnvironment } from "./environment";
 import { createTether, createSeabedDetails } from "./tether";
 import { wave, ease } from "./waves";
@@ -40,12 +42,33 @@ type Stage =
   | "last-light"
   | "blackout"
   | "space"
+  | "tv-float"
+  | "tv-fall"
   | "end";
+const chapterScore: Record<Stage, ScoreCue | null> = {
+  intro: "fold",
+  surface: "surface",
+  descending: "depth",
+  anchored: "depth",
+  releasing: "release",
+  drift: "drift",
+  transform: "ascent",
+  sheet: "ascent",
+  folding: "planeFold",
+  flight: "flight",
+  "last-light": "lastLight",
+  blackout: null,
+  space: null,
+  "tv-float": null,
+  "tv-fall": "fall",
+  end: "end",
+};
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
 const button = document.querySelector<HTMLButtonElement>("#action")!;
 const narration = document.querySelector<HTMLElement>("#narration")!;
 const driftHeadings =
   document.querySelectorAll<HTMLHeadingElement>(".drift-heading");
+const lastDriftHeading = driftHeadings.length - 1;
 const landingTitle = document.querySelector<HTMLHeadingElement>("#landing-title")!;
 const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
 const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
@@ -56,6 +79,7 @@ const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
   const sound = prepareSound();
+  document.querySelector("#turn-newspaper")!.addEventListener("click", sound.startDesk);
   const clicked = waitForPortfolioClick(sound.start);
   const renderer = new T.WebGLRenderer({
     canvas,
@@ -66,10 +90,19 @@ async function start() {
   renderer.setClearColor(0x000000, 0);
   const loader = new T.TextureLoader();
   const atlasReady = loader.loadAsync(swimUrl).catch(() => null);
-  const [[sky, storm, ripples, sand, grain, stars], television] = await Promise.all([
-    Promise.all([skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, starUrl].map(url => loader.loadAsync(url))),
+  const [[sky, storm, ripples, sand, grain, deskTexture], television] = await Promise.all([
+    Promise.all([skyUrl, stormUrl, rippleUrl, sandUrl, grainUrl, deskUrl].map(url => loader.loadAsync(url))),
     loadTelevision(),
+    newspaper.decode(),
+    reversePage.decode(),
   ]);
+  // The upright HTML image and the paper shader use the exact same front raster.
+  const frontPage = new T.Texture(newspaper);
+  const backPage = new T.Texture(reversePage);
+  for (const page of [frontPage, backPage]) {
+    page.needsUpdate = true;
+    page.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  }
   for (const texture of [ripples, sand, grain]) {
     texture.wrapS = texture.wrapT = T.RepeatWrapping;
     texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -96,13 +129,19 @@ async function start() {
     boat = new T.Group();
   boat.add(paper.mesh);
   scene.add(boat);
+  const desk = createOpeningDesk(deskTexture, paper.width, paper.height);
+  scene.add(desk.mesh);
+  const facingFront = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 0, 1), Math.PI / 2);
+  const facingBack = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), Math.PI).multiply(facingFront);
+  const pageFacing = new T.Quaternion();
   paper.mesh.layers.enable(1);
   paper.mesh.layers.enable(2);
   for (const key of ["uTide", "uTime", "uDive", "uSwell", "uClearing"] as const) {
     paper.uniforms[key] = env.uniforms[key];
   }
   const boatGeometry = paper.mesh.geometry;
-  paper.uniforms.uStars.value = stars;
+  paper.uniforms.uPrint.value = frontPage;
+  paper.uniforms.uBackPrint.value = backPage;
   const plane = createPlane();
   const springs = createPaperSprings();
   const flexPlane = createFlexiblePaper(plane.geometry, 12);
@@ -164,7 +203,10 @@ async function start() {
   let stageDuration = 0;
   let ending: ReturnType<typeof createCosmicEnding> | undefined;
   let spaceTime = 0;
+  let spaceTimeline = 0;
   let endingReduced = reduced;
+  let completedAt: Date | undefined;
+  let revealRequested = false;
   let headingIndex = 0,
     headingSince = 0;
   let findOutShown = false;
@@ -178,7 +220,9 @@ async function start() {
   const flatSwapQuat = new T.Quaternion().setFromEuler(
     new T.Euler(-0.93, -0.22, Math.PI / 2 - 0.14, "YXZ"),
   );
-  const flight = createPaperFlight();
+  const flight = createPaperFlight(flatSwapQuat);
+  const foldingAttitude = new T.Quaternion(), carriedSpin = new T.Vector3();
+  const spinStep = new T.Quaternion();
   let timing = flightTiming(reduced);
   let airAge = 0, foldStartedAt = Infinity;
   let shedWater = false;
@@ -236,21 +280,31 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
+    const scoreCue = chapterScore[s];
+    if (scoreCue) sound.score(scoreCue);
     lightTitle.hidden = s !== "last-light";
     endTitle.hidden = returnButton.hidden = s !== "end";
-    if (s === "end" && keyboardAction) returnButton.focus({ preventScroll: true });
+    if (s === "end") {
+      completedAt = new Date();
+      revealRequested = false;
+      if (keyboardAction) returnButton.focus({ preventScroll: true });
+    }
     if (s === "blackout") {
-      sound.lightsOut(reduced);
+      sound.lightsOut();
       canvas.style.cursor = "";
       canvas.removeAttribute("aria-description");
       canvas.tabIndex = -1;
+      canvas.blur();
       endingReduced = reduced;
+    }
+    if (s === "space") {
       ending = createCosmicEnding(television);
       camera.aspect = ending.feedAspect;
       camera.updateProjectionMatrix();
-      spaceTime = 0;
+      spaceTime = spaceTimeline = 0;
     }
     if (s === "intro") {
+      sound.storm(reduced ? 0.8 : 1.9);
       snapSplash.clear();
       landingTitle.hidden = true;
       landingTitle.style.opacity = "";
@@ -281,7 +335,6 @@ async function start() {
       releaseTitle.style.opacity = "";
     }
     if (s === "surface") {
-      sound.storm(reduced ? 0.7 : 2.4);
       landingTitle.hidden = false;
       landingTitle.style.opacity = "";
     }
@@ -302,15 +355,17 @@ async function start() {
       shedWater = false;
       sound.takeoff(duration);
     }
-    const showAction = s === "surface" || s === "anchored" || s === "drift" || s === "sheet";
+    const readyToEnd = s === "tv-float";
+    const showAction = s === "surface" || s === "anchored" || s === "drift" || s === "sheet" || readyToEnd;
     button.hidden = button.disabled = !showAction;
     if (showAction) {
       const below = s === "anchored";
       const skipping = s === "drift";
       const readyToFold = s === "sheet";
-      button.querySelector("span")!.textContent = skipping
-        ? "Skip"
+      button.querySelector("span")!.textContent = readyToEnd ? "End it"
+        : skipping ? "Skip"
         : readyToFold ? "Fold into a plane" : below ? "Let go" : "Look beneath";
+      button.querySelector("svg")!.toggleAttribute("hidden", readyToEnd);
       document
         .querySelector("#ripple")!
         .toggleAttribute("hidden", below || skipping || readyToFold);
@@ -323,8 +378,8 @@ async function start() {
     }
     const descriptions: Record<Stage, string> = {
       intro:
-        "Niklas’s portfolio becomes a sheet of paper and folds into a boat.",
-      surface: "The folded portfolio rocks on a chain beneath low storm clouds.",
+        "The Daily Chronicle folds into a paper boat.",
+      surface: "The folded newspaper rocks on a chain beneath low storm clouds.",
       descending: "The water rises around the bow as the chain draws taut.",
       anchored:
         "A taut chain holds the bow partly underwater above an iron anchor on the sand.",
@@ -338,9 +393,11 @@ async function start() {
       flight:
         "The paper airplane glides over the ocean toward the setting sun.",
       "last-light": "What if the light just went out?",
-      blackout: "The sunset cuts to television static.",
-      space: "The picture returns on a television floating in deep space. The plane flies toward sunset on its screen as the television falls into a black hole.",
-      end: "And humanity just goes down?",
+      blackout: "A sharp snap. Everything goes dark.",
+      space: "Television static breaks the silence. The sunset returns on a television floating in deep space.",
+      "tv-float": "The television drifts beside a black hole. Choose End it to send it into the dark.",
+      "tv-fall": "The television falls into the black hole while the plane continues toward sunset on its screen.",
+      end: "When does it end?",
     };
     canvas.setAttribute("aria-label", descriptions[s]);
     if (s !== "intro") narration.textContent = descriptions[s];
@@ -358,21 +415,21 @@ async function start() {
   }
 
   function skipToWhatComesNext() {
-    if (stage !== "drift" || headingIndex >= 7) return;
+    if (stage !== "drift" || headingIndex >= lastDriftHeading) return;
     button.disabled = true;
     button.hidden = true;
     driftHeadings.forEach((h, i) => {
-      if (i < 7) {
+      if (i < lastDriftHeading) {
         h.hidden = true;
         h.style.opacity = "";
       }
     });
-    headingIndex = 7;
+    headingIndex = lastDriftHeading;
     headingSince = age;
-    const next = driftHeadings[7];
+    const next = driftHeadings[lastDriftHeading];
     next.style.opacity = "";
     next.hidden = false;
-    sound.cue("title", 7);
+    sound.cue("title", lastDriftHeading);
     narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
   }
 
@@ -387,14 +444,18 @@ async function start() {
       releaseElapsed = 0;
       releaseWaveTime = 0;
       setStage("releasing", reduced ? 4.5 : 8.6);
-    } else if (stage === "drift" && headingIndex < 7) {
+    } else if (stage === "drift" && headingIndex < lastDriftHeading) {
       skipToWhatComesNext();
     } else if (stage === "drift" && findOutShown) {
       timing = flightTiming(reduced);
       setStage("transform", timing.openEnd);
     } else if (stage === "sheet") {
       foldStartedAt = airAge;
+      foldingAttitude.copy(boat.quaternion);
+      carriedSpin.copy(flight.sheet.spin);
       setStage("folding", timing.foldDuration);
+    } else if (stage === "tv-float") {
+      setStage("tv-fall");
     }
   }
   button.addEventListener("click", activate);
@@ -423,7 +484,15 @@ async function start() {
   window.addEventListener("blur", () => cursor.set(0, 0));
   let w = 1,
     h = 1;
+  // The flat paper is rotated a quarter turn toward the lens. Fit it by
+  // the same 88vw × 74dvh bounds as the opening sheet.
+  function pageScale(distance: number, tan: number, aspect: number) {
+    const viewHeight = 2 * distance * tan;
+    return Math.min(0.74 * viewHeight / paper.width, 0.88 * viewHeight * aspect / paper.height);
+  }
+
   function resize() {
+    if (!canvas.clientWidth || !canvas.clientHeight) return;
     w = canvas.clientWidth;
     h = canvas.clientHeight;
     renderer.setPixelRatio(
@@ -472,10 +541,8 @@ async function start() {
   for (const object of hidden) object.visible = false;
   for (const object of culled) object.frustumCulled = true;
 
-  const print = new T.CanvasTexture(await clicked);
-  print.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  paper.mesh.material.uniforms.uPrint.value = print;
-  createDolphins(scene, env.uniforms.uBreaches.value, seaMist)
+  let openFromBack = await clicked;
+  createDolphins(scene, env.uniforms.uBreaches.value, seaMist, sound.dolphinBreath)
     .then((update) => {
       dolphins = update;
     })
@@ -497,7 +564,7 @@ async function start() {
   const unfoldingScene = new T.Scene();
   const pointer = new T.Vector2();
   function hitsBoat(x: number, y: number) {
-    if (ending) return false;
+    if (stage === "blackout" || ending) return false;
     const bounds = canvas.getBoundingClientRect();
     pointer.set(
       ((x - bounds.left) / bounds.width) * 2 - 1,
@@ -514,7 +581,7 @@ async function start() {
     return projected.z < 1 && Math.hypot(x - sx, y - sy) < 56;
   }
   function unfold() {
-    if (!started || returning || returned || ending) return;
+    if (!started || returning || returned || stage === "blackout" || ending) return;
     returning = true;
     canvas.dataset.stage = "unfolding";
     returnPosition.copy(boat.position);
@@ -530,7 +597,7 @@ async function start() {
     sound.returnToPortfolio();
     sound.cue("paper");
     sound.unfold(returnFold, reduced ? 0.75 : 2.7);
-    narration.textContent = "The paper opens into Niklas’s portfolio.";
+    narration.textContent = "The paper opens into The Daily Chronicle.";
     canvas.style.cursor = "default";
   }
 
@@ -551,25 +618,32 @@ async function start() {
   });
 
   function showPortfolio() {
+    // Copy the just-rendered frame before the WebGL drawing buffer is cleared.
+    const edition = completedAt && revealFinalEdition(canvas, completedAt);
+    canvas.style.removeProperty("filter");
     ending?.dispose();
     ending = undefined;
+    desk.mesh.visible = false;
+    sound.endSpace();
+    sound.startDesk();
     endTitle.hidden = returnButton.hidden = true;
     returned = true;
     canvas.dataset.stage = "portfolio";
+    if (edition) {
+      frontPage.image = edition.canvas;
+      frontPage.needsUpdate = true;
+      completedAt = undefined;
+    }
     portfolio.hidden = false;
     document.querySelector<HTMLElement>("main")!.hidden = true;
-    portfolio
-      .querySelector<HTMLAnchorElement>("a")
-      ?.focus({ preventScroll: true });
-    void waitForPortfolioClick(() => {
+    const prepareReplay = edition && !endingReduced
+      ? zoomOutFromCover(edition.cover)
+      : Promise.resolve(resetNewspaper());
+    void prepareReplay.then(() => waitForPortfolioClick(() => {
       sound.start();
       sound.click();
-    }).then((image) => {
-      const previousPrint = paper.mesh.material.uniforms.uPrint.value;
-      const nextPrint = new T.CanvasTexture(image);
-      nextPrint.anisotropy = print.anisotropy;
-      paper.mesh.material.uniforms.uPrint.value = nextPrint;
-      previousPrint?.dispose();
+    })).then((back) => {
+      openFromBack = back;
       returning = returned = false;
       planePattern = false;
       returnAge = 0;
@@ -595,7 +669,7 @@ async function start() {
       requestAnimationFrame(frame);
     });
   }
-  returnButton.addEventListener("click", showPortfolio);
+  returnButton.addEventListener("click", () => { revealRequested = true; });
 
   function frame(stamp: number) {
     if (returned) return;
@@ -616,24 +690,14 @@ async function start() {
       const destination = camera.position
         .clone()
         .addScaledVector(direction, 4.6);
-      const parallel = camera.quaternion
-        .clone()
-        .multiply(
-          new T.Quaternion().setFromAxisAngle(
-            new T.Vector3(0, 0, 1),
-            Math.PI / 2,
-          ),
-        );
+      const parallel = pageFacing.copy(camera.quaternion).multiply(facingFront);
       boat.position.copy(returnPosition).lerp(destination, lift);
       boat.quaternion.copy(returnRotation).slerp(parallel, lift);
       const tan = Math.tan(T.MathUtils.degToRad(camera.fov * 0.5));
-      const cover = Math.max(
-        (2 * 4.6 * tan) / paper.width,
-        (2 * 4.6 * tan * camera.aspect) / paper.height,
-      );
+      const flatScale = pageScale(4.6, tan, camera.aspect);
       boat.scale
         .copy(returnScale)
-        .lerp(new T.Vector3(cover, cover, cover), ease(0.72, 1, progress));
+        .lerp(new T.Vector3(flatScale, flatScale, flatScale), ease(0.72, 1, progress));
       if (planePattern) {
         const amount = returnFold * (1 - flatten);
         plane.fold(amount);
@@ -643,6 +707,7 @@ async function start() {
       paper.uniforms.uAirLight.value = flexStrength * (1 - flatten);
       paper.uniforms.uFlight.value = returnFlightLight * (1 - flatten);
       boat.updateMatrixWorld(true);
+      desk.update(camera, boat, w, h, ease(0.68, 1, progress), 1 - ease(0.70, 1, progress));
       // Bring the sheet forward through the waterline without clipping its opening panels.
       camera.near = 0.07;
       camera.updateProjectionMatrix();
@@ -665,12 +730,34 @@ async function start() {
     if (started) age += dt;
     time += dt * (reduced ? 0.42 : 1);
     if (stage === "flight" && age >= (reduced ? 1.7 : 3.8)) setStage("last-light", reduced ? 2.8 : 4.3);
-    if (stage === "last-light" && age >= stageDuration) setStage("blackout", reduced ? 0.72 : 1.35);
-    if (ending) {
+    if (stage === "last-light" && age >= stageDuration) setStage("blackout", reduced ? 0.65 : 1.15);
+    const startingTelevision = stage === "blackout" && age >= stageDuration;
+    if (stage === "blackout") {
+      if (!startingTelevision) {
+        renderer.setClearAlpha(1);
+        renderer.clear();
+        renderer.setClearAlpha(0);
+        return;
+      }
+      setStage("space");
+    }
+    if (ending && !startingTelevision) {
       spaceTime += dt;
-      if (stage === "blackout" && age >= stageDuration) setStage("space");
+      if (stage !== "tv-float") {
+        spaceTimeline += dt * (endingReduced ? 1.58 : 1);
+        if (stage === "space" && spaceTimeline >= televisionFallStart) {
+          spaceTimeline = televisionFallStart;
+          setStage("tv-float");
+        }
+        sound.setSpace(spaceTimeline);
+      }
       if (stage === "end") {
-        ending.render(renderer, spaceTime, endingReduced, w / h);
+        ending.render(renderer, spaceTime, spaceTimeline, endingReduced, w / h);
+        const revealAt = endingReduced ? 3.3 : 5.0;
+        if (!endingReduced && age > revealAt - 1.1) {
+          canvas.style.filter = "grayscale(" + ease(revealAt - 1.1, revealAt, age) + ")";
+        }
+        if (revealRequested || age >= revealAt) showPortfolio();
         return;
       }
     }
@@ -722,7 +809,7 @@ async function start() {
       if (progress >= 1) releaseTitle.hidden = true;
     }
 
-    if (stage === "drift" && headingIndex < 7 && age - headingSince >= 3.5) {
+    if (stage === "drift" && headingIndex < lastDriftHeading && age - headingSince >= 3.5) {
       const current = driftHeadings[headingIndex];
       const fade = reduced ? 1 : ease(3.5, 4, age - headingSince);
       current.style.opacity = String(1 - fade);
@@ -731,17 +818,17 @@ async function start() {
         const next = driftHeadings[++headingIndex];
         next.hidden = false;
         headingSince = age;
-        if (headingIndex === 7) {
+        if (headingIndex === lastDriftHeading) {
           button.disabled = true;
           button.hidden = true;
         }
-        if (next.textContent?.trim()) sound.cue("title", headingIndex);
+        sound.cue("title", headingIndex);
         narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
       }
-    } else if (stage === "drift" && headingIndex === 7 && !findOutShown) {
+    } else if (stage === "drift" && headingIndex === lastDriftHeading && !findOutShown) {
       const hold = reduced ? 1.4 : 2.8;
       if (age - headingSince >= hold) {
-        const current = driftHeadings[7];
+        const current = driftHeadings[lastDriftHeading];
         const fade = reduced ? 1 : ease(hold, hold + 0.5, age - headingSince);
         current.style.opacity = String(1 - fade);
         if (fade >= 1) {
@@ -767,6 +854,8 @@ async function start() {
       const freedFor = released ? releaseElapsed - breakDelay : -1;
       const clearing = ease(0, reduced ? 3 : 8, freedFor);
       env.uniforms.uClearing.value = clearing;
+      sound.followThunder();
+      if (stage === "releasing" && clearing > 0.64) sound.score("drift");
       skylight.color.lerpColors(stormLight, sunsetLight, clearing);
       sun.intensity *= T.MathUtils.lerp(0.28, 1, clearing);
       const pause = reduced ? 0.69 : 2.15,
@@ -970,20 +1059,10 @@ async function start() {
         const direction = camera.getWorldDirection(new T.Vector3());
         const start = camera.position.clone().addScaledVector(direction, 4.6);
         boat.position.lerp(start, 1 - pull);
-        const parallel = camera.quaternion
-          .clone()
-          .multiply(
-            new T.Quaternion().setFromAxisAngle(
-              new T.Vector3(0, 0, 1),
-              Math.PI / 2,
-            ),
-          );
+        const parallel = pageFacing.copy(camera.quaternion).multiply(openFromBack ? facingBack : facingFront);
         boat.quaternion.slerp(parallel, 1 - pull);
-        const cover = Math.max(
-          (2 * 4.6 * tan) / paper.width,
-          (2 * 4.6 * tan * aspect) / paper.height,
-        );
-        boat.scale.setScalar(T.MathUtils.lerp(cover, 1, pull));
+        boat.position.y += (reduced ? 0.08 : 0.34) * Math.sin(Math.PI * pull);
+        boat.scale.setScalar(T.MathUtils.lerp(pageScale(4.6, tan, aspect), 1, pull));
       } else boat.scale.setScalar(1);
       paper.fold(fold);
       sound.fold(fold, duration * 0.6);
@@ -1075,6 +1154,10 @@ async function start() {
       const motionScale = reduced ? 0.38 : 1;
       const air = flight.step(dt, elapsed, foldAge, time, departureDirection, timing, reduced);
       const { position, velocity } = flight;
+      if (!ending) {
+        const windExposure = ease(0.18, timing.launchEnd + 0.65, elapsed) * (stage === "folding" ? 0.65 : 1);
+        sound.fly(Math.hypot(velocity.x, velocity.z), air.gust, air.crosswind, windExposure);
+      }
       const swell = (reduced ? 0.39 : 1) * (1 - 0.76 * unfold);
       const seaLevel = wave(position.x, position.z, time, swell);
       const origin = un.uOceanOrigin.value;
@@ -1087,9 +1170,25 @@ async function start() {
       boat.rotateZ(-jumpPitch);
       airEuler.set(air.pitch, -0.22 * air.roll, -air.roll, "YXZ");
       boat.quaternion.premultiply(airAttitude.setFromEuler(airEuler));
+      if (!reduced) {
+        boat.quaternion.slerp(flight.sheet.attitude, ease(timing.openEnd - 0.32, timing.openEnd + 0.40, elapsed));
+      }
       const bank = motionScale * (0.19 * Math.sin(fold * Math.PI) + 0.10 * Math.sin(glideTime * 0.41));
       orientPlane(velocity.x, velocity.y, velocity.z, bank);
-      boat.quaternion.slerp(planeQuat, ease(0.04, 1, fold));
+      if (!reduced && stage === "folding") {
+        // Carry the sheet's angular momentum into the first crease and then
+        // let the forming wings stabilize it in the current direction of travel.
+        const rate = carriedSpin.length();
+        if (rate > 1e-5) {
+          carriedSpin.divideScalar(rate);
+          foldingAttitude.multiply(spinStep.setFromAxisAngle(carriedSpin, rate * dt));
+          carriedSpin.multiplyScalar(rate * Math.exp(-dt * 3.7));
+        }
+        foldingAttitude.rotateTowards(planeQuat, dt * (0.20 + 5.1 * ease(0.12, 0.76, fold)));
+        boat.quaternion.copy(foldingAttitude);
+      } else {
+        boat.quaternion.slerp(planeQuat, ease(0.04, 1, fold));
+      }
 
       const finalGlide = ending || stage === "last-light" ? 1
         : stage === "flight" ? ease(0, reduced ? 1.7 : 3.8, age) : 0;
@@ -1098,18 +1197,23 @@ async function start() {
       paper.uniforms.uFlight.value = ease(0, timing.launchEnd, elapsed);
       if (elapsed < timing.openEnd) {
         paper.fold(1 - unfold);
+        const openingDuration = timing.openEnd - timing.launchEnd;
+        sound.openBoat((elapsed - timing.launchEnd) / openingDuration, openingDuration);
       } else {
         // Both crease patterns describe the same rectangle in identical UVs.
         // Retessellate it while flat, before the first wind bend develops.
         planePattern = true;
         plane.fold(fold);
+        sound.foldPlane(fold, timing.foldDuration);
         paper.uniforms.uFold.value = fold;
         flexStrength = ease(timing.openEnd, timing.openEnd + 0.85, elapsed)
           * (1 - ease(0, 0.62, fold)) * motionScale;
         flexWind = flexStrength * (1 - ease(0, 0.4, fold));
         if (flexStrength > 0) {
-          const load = 0.38 * (air.gust - 0.43 * velocity.y);
-          const twist = 0.36 * air.crosswind + 0.24 * air.rollRate;
+          const localPressure = reduced ? 0 : flight.sheet.pressure;
+          const localTwist = reduced ? 0 : flight.sheet.twist;
+          const load = 0.38 * (air.gust - 0.43 * velocity.y) + 0.15 * localPressure;
+          const twist = 0.36 * air.crosswind + 0.24 * air.rollRate + 0.17 * localTwist;
           springs.step(dt, 0.25 + 0.65 * Math.tanh(load + twist),
             0.05 + 0.58 * Math.tanh(load - twist));
         }
@@ -1172,14 +1276,17 @@ async function start() {
 
     if (ending) {
       ending.capture(renderer, scene, camera, spaceTime);
-      if (ending.render(renderer, spaceTime, endingReduced, w / h)) setStage("end");
+      if (ending.render(renderer, spaceTime, spaceTimeline, endingReduced, w / h)) setStage("end");
+      if (startingTelevision) sound.startTelevision(endingReduced);
       return;
     }
+    const deskProgress = stage === "intro" ? ease(0, pullDuration, age) : 1;
+    desk.update(camera, boat, w, h, 1 - ease(0.12, 0.88, deskProgress), deskProgress);
     renderer.render(scene, camera);
     if (!started) {
       portfolio.hidden = true;
       document.querySelector("main")!.removeAttribute("aria-hidden");
-      canvas.setAttribute("aria-description", "Click the paper, or press Enter here, to unfold the portfolio.");
+      canvas.setAttribute("aria-description", "Click the paper, or press Enter here, to unfold the newspaper.");
       canvas.tabIndex = 0;
       canvas.focus({ preventScroll: true });
     }

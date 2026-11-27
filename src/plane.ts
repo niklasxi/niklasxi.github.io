@@ -1,6 +1,7 @@
 import * as T from "three";
 import { sheetWidth as width, sheetHeight as height } from "./creases";
 import { ease } from "./waves";
+import { planeCreases } from "./paperFlight";
 
 const a = width / 2;
 const b = height / 2;
@@ -110,7 +111,6 @@ export function createPlane() {
   const regions: { side: number; corner: boolean; nose: boolean; wing: boolean }[] = [];
   const uv: number[] = [];
   const bary: number[] = [];
-  const ink: number[] = [];
   const seam: number[] = [];
 
   for (const face of splitCreases()) {
@@ -127,8 +127,6 @@ export function createPlane() {
       regions.push(region);
       uv.push(0.5 - p.y / height, 0.5 + p.x / width);
       bary.push(+(i === 0), +(i === 1), +(i === 2));
-      // Keep the star-field print visible across the wings and fuselage.
-      ink.push(isWing ? 0.86 : 0.65);
       seam.push(0.6);
     });
   }
@@ -143,7 +141,6 @@ export function createPlane() {
   geom.setIndex(sheetIndices(flat));
   geom.setAttribute("uv", new T.Float32BufferAttribute(uv, 2));
   geom.setAttribute("bary", new T.Float32BufferAttribute(bary, 3));
-  geom.setAttribute("ink", new T.Float32BufferAttribute(ink, 1));
   geom.setAttribute("seam", new T.Float32BufferAttribute(seam, 1));
 
   const out = new T.Vector3();
@@ -151,11 +148,11 @@ export function createPlane() {
   const wingTips: { index: number; z: number; weight: number; side: number }[] = [];
 
   function apply() {
-    const t1 = ease(0.0, 0.3, foldAmount);
-    const t2 = ease(0.3, 0.62, foldAmount);
-    const t3 = ease(0.62, 0.8, foldAmount);
-    const nearWing = ease(0.74, 0.92, foldAmount);
-    const farWing = ease(0.83, 1, foldAmount);
+    const t1 = ease(...planeCreases.corners, foldAmount);
+    const t2 = ease(...planeCreases.nose, foldAmount);
+    const t3 = ease(...planeCreases.keel, foldAmount);
+    const nearWing = ease(...planeCreases.nearWing, foldAmount);
+    const farWing = ease(...planeCreases.farWing, foldAmount);
 
     for (let i = 0; i < flat.length; i++) {
       const p = flat[i];

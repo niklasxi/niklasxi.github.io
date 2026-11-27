@@ -1,3 +1,5 @@
+import { createScore, type ScoreCue } from "./score";
+import { planeCreases } from "./paperFlight";
 import oceanUrl from "./assets/ocean-waves.mp3?url";
 import thunderUrl from "./assets/dry-thunder.mp3?url";
 import splashUrl from "./assets/water-splash.mp3?url";
@@ -7,6 +9,14 @@ import chainBreakUrl from "./assets/chain-break.wav?url";
 
 // The edited track follows the half fold, corners, brim, pocket folds and hull opening.
 const foldBoundaries = [0, 0.19, 0.36, 0.46, 0.52, 0.64, 0.71, 0.83, 1];
+const planeFoldSounds = Object.values(planeCreases).map(([start, end], index) => ({
+  start, end, excerpt: [0, 2, 3, 5, 7][index],
+}));
+
+function smoothstep(a: number, b: number, value: number) {
+  const t = Math.max(0, Math.min(1, (value - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
 
 function preloadEffect(url: string) {
   return fetch(url)
@@ -39,13 +49,34 @@ export function prepareSound() {
   let splashBuffer: AudioBuffer | undefined;
   let splashGain: GainNode | undefined;
   let nextFold = 0;
+  let nextPlaneFold = 0;
+  let openedBoat = false;
+  const paperSources = new Set<AudioBufferSourceNode>();
   let splash: AudioBufferSourceNode | undefined;
   let waterFilter: BiquadFilterNode | undefined;
+  let audio: {
+    context: AudioContext;
+    output: DynamicsCompressorNode;
+    score: ReturnType<typeof createScore>;
+  } | undefined;
   let surfGain: GainNode | undefined;
-  let waterfallGain: GainNode | undefined;
+  let wind: { gain: GainNode; lowpass: BiquadFilterNode; stereo: StereoPannerNode } | undefined;
+  let creaseFilter: BiquadFilterNode | undefined;
   let stormGain: GainNode | undefined;
   let stormToken = 0;
+  let stormMeter: AnalyserNode | undefined;
+  const stormSamples = new Float32Array(2048);
+  let lastStormSample = -Infinity;
 
+  let spaceGain: GainNode | undefined;
+  let spaceSources: AudioScheduledSourceNode[] = [];
+  let spaceSubGain: GainNode | undefined;
+  let spaceDroneGain: GainNode | undefined;
+  let spaceFilter: BiquadFilterNode | undefined;
+  let spaceHumGain: GainNode | undefined;
+  let spaceWhine: OscillatorNode | undefined;
+  let spaceWhineGain: GainNode | undefined;
+  let spaceImpacted = false;
   let airBuffer: AudioBuffer | undefined;
   let lastHover = -1;
   let lastDepth = 0;
@@ -54,8 +85,62 @@ export function prepareSound() {
   const submergedHz = 2400;
   const stormGainLevel = 0.42;
 
+  function setupAudio() {
+    if (!audio) {
+      const context = new AudioContext({ latencyHint: "interactive" });
+      const output = context.createDynamicsCompressor();
+      output.threshold.value = -8;
+      output.knee.value = 12;
+      output.ratio.value = 5;
+      output.attack.value = 0.004;
+      output.release.value = 0.18;
+      output.connect(context.destination);
+      audio = { context, output, score: createScore(context, output) };
+    }
+    return audio;
+  }
+
+  function stopPaper() {
+    for (const source of paperSources) source.stop();
+    paperSources.clear();
+  }
+
+  function playPaper(buffer: AudioBuffer, offset: number, length: number, duration: number,
+    volume = 1, delay = 0, destination: AudioNode | undefined = waterFilter) {
+    if (!destination || length <= 0 || duration <= 0) return;
+    const context = destination.context;
+    const start = context.currentTime + delay;
+    const finish = start + duration;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = length * buffer.duration / duration;
+    const gain = context.createGain();
+    const fade = Math.min(0.028, duration * 0.25);
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(volume, start + fade);
+    gain.gain.setValueAtTime(volume, finish - fade);
+    gain.gain.linearRampToValueAtTime(0, finish);
+    source.connect(gain).connect(destination);
+    source.onended = () => {
+      paperSources.delete(source);
+      source.disconnect();
+      gain.disconnect();
+    };
+    paperSources.add(source);
+    source.start(start, offset * buffer.duration, length * buffer.duration);
+  }
+
+  function stopWind(immediate = false) {
+    if (!wind) return;
+    const now = wind.gain.context.currentTime;
+    wind.gain.gain.cancelScheduledValues(now);
+    if (immediate) wind.gain.gain.setValueAtTime(0, now);
+    else wind.gain.gain.setTargetAtTime(0, now, 0.22);
+  }
+
   function resetStorm() {
     stormToken++;
+    audio?.score.reactToThunder(0);
     if (!stormGain) return;
     const now = stormGain.context.currentTime;
     stormGain.gain.cancelScheduledValues(now);
@@ -82,6 +167,128 @@ export function prepareSound() {
     window.setTimeout(() => {
       if (token === stormToken) thunder.pause();
     }, duration * 1000 + 150);
+  }
+
+  function startSpace(reduced: boolean) {
+    if (!audio || spaceGain) return;
+    const { context, output } = audio;
+    const now = context.currentTime;
+    const bus = context.createGain();
+    bus.gain.setValueAtTime(0, now);
+    bus.gain.linearRampToValueAtTime(0.94, now + (reduced ? 1.5 : 2.8));
+    bus.connect(output);
+    spaceGain = bus;
+    const sources: AudioScheduledSourceNode[] = [];
+    function tone(type: OscillatorType, frequency: number, volume: number, destination: AudioNode = bus) {
+      const oscillator = context.createOscillator();
+      oscillator.type = type;
+      oscillator.frequency.value = frequency;
+      const gain = context.createGain();
+      gain.gain.value = volume;
+      oscillator.connect(gain).connect(destination);
+      oscillator.start(now);
+      sources.push(oscillator);
+      return { oscillator, gain };
+    }
+    // Keep the 120 and 180 Hz harmonics audible on small speakers.
+    spaceHumGain = context.createGain();
+    spaceHumGain.connect(bus);
+    tone("sine", 60, 0.035, spaceHumGain);
+    tone("sine", 120, 0.019, spaceHumGain);
+    tone("sine", 180, 0.007, spaceHumGain);
+    const drone = tone("sine", 36.7, 0.066);
+    const sub = tone("triangle", 24.5, 0.045);
+    spaceDroneGain = drone.gain;
+    spaceSubGain = sub.gain;
+    if (airBuffer) {
+      const noise = context.createBufferSource();
+      noise.buffer = airBuffer;
+      noise.loop = true;
+      const low = context.createBiquadFilter();
+      low.type = "lowpass";
+      low.frequency.value = 95;
+      low.Q.value = 0.8;
+      const gain = context.createGain();
+      gain.gain.value = 0.028;
+      noise.connect(low).connect(gain).connect(bus);
+      noise.start(now);
+      sources.push(noise);
+      spaceFilter = low;
+    }
+    const whine = tone("sine", 7400, 0.0026);
+    spaceWhine = whine.oscillator;
+    spaceWhineGain = whine.gain;
+    const lfo = context.createOscillator();
+    lfo.frequency.value = 0.08;
+    const lfoGain = context.createGain();
+    lfoGain.gain.value = 0.012;
+    lfo.connect(lfoGain).connect(drone.gain.gain);
+    lfo.start(now);
+    sources.push(lfo);
+    spaceSources = sources;
+    spaceImpacted = false;
+  }
+
+  function setSpace(time: number) {
+    if (!spaceGain) return;
+    const context = spaceGain.context;
+    const now = context.currentTime;
+    const fall = smoothstep(10.3, 15.4, time);
+    const tail = 1 - 0.70 * smoothstep(15.55, 17.9, time);
+    if (spaceSubGain) spaceSubGain.gain.setTargetAtTime((0.044 + 0.116 * fall) * tail, now, 0.12);
+    if (spaceDroneGain) spaceDroneGain.gain.setTargetAtTime((0.062 + 0.053 * fall) * tail, now, 0.15);
+    if (spaceFilter) spaceFilter.frequency.setTargetAtTime(95 + 240 * fall, now, 0.12);
+    if (spaceHumGain) {
+      spaceHumGain.gain.setTargetAtTime(1 - smoothstep(13.5, 15.5, time), now, 0.15);
+    }
+    if (spaceWhine) spaceWhine.frequency.setTargetAtTime(7400 - 5700 * fall, now, 0.12);
+    if (spaceWhineGain) spaceWhineGain.gain.setTargetAtTime(0.0026 * (1 - fall), now, 0.15);
+    if (!spaceImpacted && time >= 15.25) {
+      spaceImpacted = true;
+      void impact();
+    }
+  }
+
+  function impact() {
+    if (!audio) return;
+    const { context, output } = audio;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(70, now);
+    oscillator.frequency.exponentialRampToValueAtTime(22, now + 1.7);
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.4);
+    oscillator.connect(gain).connect(output);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+    oscillator.start(now);
+    oscillator.stop(now + 2.45);
+  }
+
+  function stopSpace(fade = 0.5) {
+    if (!spaceGain) return;
+    const bus = spaceGain;
+    const sources = spaceSources;
+    spaceGain = undefined;
+    spaceSources = [];
+    spaceSubGain = spaceDroneGain = spaceFilter = spaceHumGain = undefined;
+    spaceWhine = undefined;
+    spaceWhineGain = undefined;
+    spaceImpacted = false;
+    const now = bus.context.currentTime;
+    bus.gain.cancelScheduledValues(now);
+    bus.gain.setTargetAtTime(0, now, fade);
+    window.setTimeout(() => {
+      for (const node of sources) {
+        try {
+          node.stop();
+        } catch {}
+        node.disconnect();
+      }
+      bus.disconnect();
+    }, fade * 1000 + 1000);
   }
 
   function cue(kind: "title" | "dive" | "arrival" | "paper" | "hover", index = 0) {
@@ -133,20 +340,47 @@ export function prepareSound() {
     storm(duration = 2.4) {
       fadeStorm(stormGainLevel, duration, false);
     },
+    followThunder() {
+      if (!audio || !stormMeter || thunder.paused) return;
+      const now = audio.context.currentTime;
+      if (now - lastStormSample < 0.04) return;
+      lastStormSample = now;
+      stormMeter.getFloatTimeDomainData(stormSamples);
+      let energy = 0;
+      for (const sample of stormSamples) energy += sample * sample;
+      const rms = Math.sqrt(energy / stormSamples.length);
+      audio.score.reactToThunder(smoothstep(0.006, 0.055, rms));
+    },
     calmStorm(duration = 8.5) {
       fadeStorm(0, duration, true);
     },
+    setSpace,
+    endSpace(fade = 0.5) {
+      stopSpace(fade);
+    },
+    startDesk() {
+      const { context, score } = setupAudio();
+      void context.resume().catch(() => {});
+      score.play("desk");
+    },
+    score(cue: ScoreCue) {
+      audio?.score.play(cue);
+    },
     start() {
+      const { context, output } = setupAudio();
+      stopPaper();
+      stopSpace(0.2);
+      nextFold = nextPlaneFold = 0;
+      openedBoat = false;
       if (waterFilter && surfGain) {
-        nextFold = 0;
         lastDepth = 0;
-        const now = waterFilter.context.currentTime;
+        const now = context.currentTime;
         waterFilter.frequency.setValueAtTime(surfaceHz, now);
         surfGain.gain.cancelScheduledValues(now);
         surfGain.gain.setTargetAtTime(surfaceGain, now, 0.15);
-        if (waterfallGain) waterfallGain.gain.setTargetAtTime(0, now, 0.25);
-        // Keep the storm silent through the fold, but unlock playback inside
-        // the click gesture so the first rumble can start on the surface.
+        stopWind(true);
+        // Unlock thunder playback inside the click gesture. The intro cues
+        // the rumble once the journal begins to lift.
         resetStorm();
         if (stormGain) {
           try {
@@ -158,28 +392,37 @@ export function prepareSound() {
         void ocean.play().catch(() => {});
         return;
       }
-      const context = new AudioContext({ latencyHint: "interactive" });
       const filter = context.createBiquadFilter();
       filter.type = "lowpass";
       filter.frequency.value = surfaceHz;
       filter.Q.value = -3;
-      filter.connect(context.destination);
+      filter.connect(output);
       waterFilter = filter;
       // Prepare the airy accents once, away from camera and title transitions.
       airBuffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
       const air = airBuffer.getChannelData(0);
       for (let i = 0; i < air.length; i++) air[i] = Math.random() * 2 - 1;
-      const rumble = context.createBufferSource();
-      rumble.buffer = airBuffer;
-      rumble.loop = true;
-      const rumbleFilter = context.createBiquadFilter();
-      rumbleFilter.type = "lowpass";
-      rumbleFilter.frequency.value = 380;
-      rumbleFilter.Q.value = 0.7;
-      waterfallGain = context.createGain();
-      waterfallGain.gain.value = 0;
-      rumble.connect(rumbleFilter).connect(waterfallGain).connect(filter);
-      rumble.start();
+      const breeze = context.createBufferSource();
+      breeze.buffer = airBuffer;
+      breeze.loop = true;
+      const highpass = context.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 170;
+      const lowpass = context.createBiquadFilter();
+      lowpass.type = "lowpass";
+      lowpass.frequency.value = 1150;
+      const gain = context.createGain();
+      gain.gain.value = 0;
+      const stereo = context.createStereoPanner();
+      breeze.connect(highpass).connect(lowpass).connect(gain).connect(stereo).connect(output);
+      breeze.start();
+      wind = { gain, lowpass, stereo };
+
+      creaseFilter = context.createBiquadFilter();
+      creaseFilter.type = "highpass";
+      creaseFilter.frequency.value = 430;
+      creaseFilter.Q.value = 0.6;
+      creaseFilter.connect(output);
 
       void pullData
         .then(async (data) => {
@@ -197,7 +440,9 @@ export function prepareSound() {
       context.createMediaElementSource(ocean).connect(surfGain).connect(filter);
       stormGain = context.createGain();
       stormGain.gain.value = 0;
-      context.createMediaElementSource(thunder).connect(stormGain).connect(filter);
+      stormMeter = context.createAnalyser();
+      stormMeter.fftSize = stormSamples.length;
+      context.createMediaElementSource(thunder).connect(stormGain).connect(stormMeter).connect(filter);
       void thunder.play().catch(() => {});
       void ocean.play().catch(() => {});
       void foldData
@@ -242,35 +487,85 @@ export function prepareSound() {
       oscillator.stop(now + 0.07);
     },
     unfold(fold: number, duration: number) {
-      if (!unfoldBuffer || !waterFilter || fold <= 0) return;
-      const source = waterFilter.context.createBufferSource();
-      source.buffer = unfoldBuffer;
-      source.playbackRate.value = unfoldBuffer.duration * fold / (duration * 0.68);
-      source.connect(waterFilter);
-      source.start(waterFilter.context.currentTime + duration * 0.15, (1 - fold) * unfoldBuffer.duration, fold * unfoldBuffer.duration);
+      stopPaper();
+      if (unfoldBuffer && fold > 0) playPaper(unfoldBuffer, 1 - fold, fold, duration * 0.68, 1, duration * 0.15);
+    },
+    openBoat(progress: number, duration: number) {
+      if (openedBoat || !unfoldBuffer || !waterFilter || progress <= 0 || progress >= 1) return;
+      openedBoat = true;
+      playPaper(unfoldBuffer, progress, 1 - progress, duration * (1 - progress), 1.15);
     },
     fold(progress: number, duration: number) {
-      if (
-        !foldBuffer ||
-        !waterFilter ||
-        progress <= 0 ||
-        progress >= 1 ||
-        progress < foldBoundaries[nextFold]
-      )
-        return;
-
+      if (!foldBuffer || progress <= 0 || progress >= 1 || progress < foldBoundaries[nextFold]) return;
       // At low frame rates, enter the current crease at its actual visual position.
       while (foldBoundaries[nextFold + 1] <= progress) nextFold++;
-      const end = foldBoundaries[++nextFold];
-      const source = waterFilter.context.createBufferSource();
-      source.buffer = foldBuffer;
-      source.playbackRate.value = foldBuffer.duration / duration;
-      source.connect(waterFilter);
-      source.start(
-        0,
-        progress * foldBuffer.duration,
-        (end - progress) * foldBuffer.duration,
-      );
+      const length = foldBoundaries[++nextFold] - progress;
+      playPaper(foldBuffer, progress, length, duration * length);
+    },
+    foldPlane(progress: number, duration: number) {
+      if (!foldBuffer || !creaseFilter || progress <= 0 || progress >= 1) return;
+      while (nextPlaneFold < planeFoldSounds.length && progress >= planeFoldSounds[nextPlaneFold].start) {
+        const { end, excerpt } = planeFoldSounds[nextPlaneFold++];
+        const rate = 1.06;
+        const offset = foldBoundaries[excerpt];
+        const sampleLength = (foldBoundaries[excerpt + 1] - offset) * foldBuffer.duration;
+        // Keep the transients near their recorded pitch. The paper stays
+        // quiet for the remainder of a slow crease instead of stretching it.
+        const seconds = Math.min(sampleLength / rate, duration * (end - progress));
+        if (seconds < 0.045) continue;
+        playPaper(foldBuffer, offset, seconds * rate / foldBuffer.duration, seconds, 0.59, 0, creaseFilter);
+      }
+    },
+    dolphinBreath(pan: number, distance: number) {
+      if (!audio || !airBuffer || audio.context.state !== "running") return;
+      const { context, output } = audio;
+      const now = context.currentTime;
+      const exhaleEnd = now + 0.54;
+      const inhaleStart = now + 0.60;
+      const duration = 0.89;
+      const source = context.createBufferSource();
+      source.buffer = airBuffer;
+      const highpass = context.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.Q.value = 0.65;
+      highpass.frequency.setValueAtTime(650, now);
+      highpass.frequency.setValueAtTime(1080, inhaleStart);
+      const lowpass = context.createBiquadFilter();
+      lowpass.type = "lowpass";
+      lowpass.Q.value = 0.65;
+      lowpass.frequency.setValueAtTime(4800, now);
+      lowpass.frequency.exponentialRampToValueAtTime(3200, exhaleEnd);
+      lowpass.frequency.setValueAtTime(2900, inhaleStart);
+      lowpass.frequency.exponentialRampToValueAtTime(5800, now + 0.75);
+      const envelope = context.createGain();
+      const attenuation = Math.min(1, 35 / Math.max(1, distance)) ** 1.5;
+      // The puff falls away. After a small gap, the intake swells upward
+      // and closes quickly while the dolphin is still above the water.
+      envelope.gain.setValueAtTime(0, now);
+      envelope.gain.linearRampToValueAtTime(0.29 * attenuation, now + 0.026);
+      envelope.gain.linearRampToValueAtTime(0.20 * attenuation, now + 0.085);
+      envelope.gain.linearRampToValueAtTime(0.11 * attenuation, now + 0.32);
+      envelope.gain.linearRampToValueAtTime(0, exhaleEnd);
+      envelope.gain.setValueAtTime(0, inhaleStart);
+      envelope.gain.linearRampToValueAtTime(0.18 * attenuation, now + 0.76);
+      envelope.gain.linearRampToValueAtTime(0, now + duration);
+      const stereo = context.createStereoPanner();
+      stereo.pan.value = Math.max(-0.85, Math.min(0.85, pan));
+      source.connect(highpass).connect(lowpass).connect(envelope);
+      envelope.connect(stereo).connect(output);
+      source.onended = () => {
+        for (const node of [source, highpass, lowpass, envelope, stereo]) node.disconnect();
+      };
+      source.start(now, Math.random() * (airBuffer.duration - duration), duration);
+    },
+    fly(speed: number, gust: number, crosswind: number, exposure: number) {
+      if (!wind) return;
+      const now = wind.gain.context.currentTime;
+      const airflow = Math.min(1, speed / 7);
+      const gustLevel = Math.max(-1, Math.min(1, gust));
+      wind.gain.gain.setTargetAtTime(exposure * (0.155 + 0.135 * airflow + 0.055 * gustLevel), now, 0.15);
+      wind.lowpass.frequency.setTargetAtTime(980 + 910 * airflow + 290 * gustLevel, now, 0.24);
+      wind.stereo.pan.setTargetAtTime(0.22 * Math.max(-1, Math.min(1, crosswind)), now, 0.28);
     },
     pullChain(duration: number) {
       if (!pullBuffer || !waterFilter) return;
@@ -304,22 +599,44 @@ export function prepareSound() {
       );
     },
     returnToPortfolio() {
+      stopWind();
       pulling?.stop();
       pulling = undefined;
+      stopSpace(0.4);
       fadeStorm(0, 0.5, true);
       if (!surfGain || !waterFilter) return;
       const now = surfGain.context.currentTime;
       waterFilter.frequency.setTargetAtTime(surfaceHz, now, 0.08);
       surfGain.gain.cancelScheduledValues(now);
       surfGain.gain.setTargetAtTime(0, now, 0.3);
-      if (waterfallGain) waterfallGain.gain.setTargetAtTime(0, now, 0.35);
     },
-    lightsOut(reduced: boolean) {
+    lightsOut() {
+      stopWind(true);
       ocean.pause();
       thunder.pause();
       resetStorm();
-      if (!waterFilter || !airBuffer) return;
-      const context = waterFilter.context;
+      stopPaper();
+      audio?.score.cut();
+      if (!audio || !airBuffer) return;
+      const { context, output } = audio;
+      const now = context.currentTime;
+      const snap = context.createBufferSource();
+      snap.buffer = airBuffer;
+      const highpass = context.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 1450;
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.42, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+      snap.connect(highpass).connect(gain).connect(output);
+      snap.onended = () => { snap.disconnect(); highpass.disconnect(); gain.disconnect(); };
+      snap.start(now, 0, 0.055);
+    },
+    startTelevision(reduced: boolean) {
+      startSpace(reduced);
+      audio?.score.play("space");
+      if (!audio || !airBuffer) return;
+      const { context, output } = audio;
       const now = context.currentTime;
       const duration = reduced ? 1.12 : 1.8;
       const noise = context.createBufferSource();
@@ -335,7 +652,7 @@ export function prepareSound() {
       gain.gain.exponentialRampToValueAtTime(0.095, now + 0.043);
       gain.gain.setValueAtTime(0.095, now + 0.55 * duration);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-      noise.connect(speaker).connect(gain).connect(context.destination);
+      noise.connect(speaker).connect(gain).connect(output);
       noise.onended = () => { noise.disconnect(); speaker.disconnect(); gain.disconnect(); };
       noise.start(now);
       noise.stop(now + duration);
