@@ -211,6 +211,10 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
     const cycle = Math.min(1, (t - strokeStart) / period);
     const envelope = Math.sin(Math.PI * cycle);
     const stroke = Math.sin(2 * Math.PI * cycle) * envelope;
+    // The body crests just after the powered downstroke, then floats back
+    // to the glide path. Smooth endpoints keep irregular beats continuous.
+    const lift = ease(.26, .69, cycle) * (1 - ease(.69, 1, cycle));
+    bird.position.y += amplitude * lift * .19 * (reduced ? .45 : 1);
     const shot = Math.max(0,age-killAt);
     const crush = ease(0,.34,shot);
     const flap = Math.sin(ease(0,.13,shot)*Math.PI*2);

@@ -121,6 +121,8 @@ export function prepareSound() {
   const submergedHz = 2400;
   const stormGainLevel = 0.42;
 
+  const galleryTracks: { element: HTMLAudioElement; gain: GainNode }[] = [];
+
   function setupAudio() {
     if (!audio) {
       const context = new AudioContext({ latencyHint: "interactive" });
@@ -615,7 +617,25 @@ export function prepareSound() {
     },
     museumOpening() {
       if (!audio || !waterFilter || !surfGain) return;
-      const now = audio.context.currentTime;
+      const { context, output } = audio;
+      if (!galleryTracks.length) {
+        for (const [index, name] of ["birds", "voices"].entries()) {
+          const element = new Audio(import.meta.env.BASE_URL + "museum/" + name + ".mp3");
+          element.loop = true;
+          const gain = context.createGain();
+          gain.gain.value = 0;
+          const pan = context.createStereoPanner();
+          pan.pan.value = index === 0 ? .48 : -.38;
+          context.createMediaElementSource(element).connect(gain).connect(pan).connect(output);
+          galleryTracks.push({ element, gain });
+        }
+      }
+      for (const { element, gain } of galleryTracks) {
+        element.currentTime = 0;
+        gain.gain.value = 0;
+        void element.play().catch(() => {});
+      }
+      const now = context.currentTime;
       waterFilter.frequency.setTargetAtTime(12500, now, .2);
       surfGain.gain.cancelScheduledValues(now);
       surfGain.gain.setTargetAtTime(surfaceGain * .66, now, .3);
@@ -626,6 +646,20 @@ export function prepareSound() {
         splash.connect(surfGain);
         splash.onended = () => splash.disconnect();
         splash.start(now);
+      }
+    },
+    museumMix(progress: number) {
+      if (!audio || !galleryTracks.length) return;
+      const retreat = 1 - smoothstep(.55, .97, progress);
+      const birds = smoothstep(.04, .26, progress) * (1 - .74 * smoothstep(.31, .51, progress));
+      const voices = smoothstep(.19, .42, progress);
+      galleryTracks[0].gain.gain.setTargetAtTime(.58 * birds * retreat, audio.context.currentTime, .16);
+      galleryTracks[1].gain.gain.setTargetAtTime(.47 * voices * retreat, audio.context.currentTime, .16);
+    },
+    pauseMuseum(paused: boolean) {
+      for (const { element } of galleryTracks) {
+        if (paused) element.pause();
+        else void element.play().catch(() => {});
       }
     },
     craneLanding(cue: number) {
@@ -770,6 +804,7 @@ export function prepareSound() {
       );
     },
     returnToPortfolio() {
+      for (const { element } of galleryTracks) element.pause();
       stopWind();
       stopRain();
       pulling?.stop();

@@ -1,7 +1,9 @@
 import * as T from "three";
+import { captureMuseumWave } from "./museumWave";
 import { ease } from "./waves";
 
-const clipNames = ["dolphins", "forest", "dance", "hands", "city", "wildlife", "family", "play"];
+const clipNames = ["dolphins", "forest", "dance", "hands", "city", "wildlife", "family", "play", "machines", "craft", "festival"];
+const exhibits = [...clipNames, ...[1, 2, 3, 4, 5, 6, 8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].map(id => "photo-" + String(id).padStart(2, "0"))];
 const base = import.meta.env.BASE_URL + "museum/";
 const radius = 24;
 const rows = 95;
@@ -26,11 +28,12 @@ export function createMuseum() {
   // Every frame is tangent to the same sphere. Its curvature is imperceptible
   // a few inches from a single photograph and emerges naturally on retreat.
   const plate = new T.PlaneGeometry(1, 1);
-  const groups: T.Matrix4[][] = clipNames.map(() => []);
-  const coordinates: number[][] = clipNames.map(() => []);
+  const groups: T.Matrix4[][] = exhibits.map(() => []);
+  const coordinates: number[][] = exhibits.map(() => []);
   const dummy = new T.Object3D();
   const rowHeight = Math.PI * radius / rows;
   const frameWidth = rowHeight * 1.65;
+  const entrance = [18, 4, 12, 8, 23, 16, 7, 0, 1, 30, 9, 28, 2, 3, 10];
   for (let row = 0; row < rows; row++) {
     const lat = (row - (rows - 1) / 2) * Math.PI / rows;
     const count = Math.max(3, Math.round(2 * Math.PI * radius * Math.cos(lat) / frameWidth));
@@ -39,8 +42,10 @@ export function createMuseum() {
       const east = col > count / 2 ? col - count : col;
       const north = row - (rows - 1) / 2;
       const featured = Math.abs(east) <= 2 && Math.abs(north) <= 1;
-      const film = featured ? ((east + north * 3) % clipNames.length + clipNames.length) % clipNames.length
-        : Math.floor(hash(row, col) * clipNames.length);
+      // The entrance stays on the dolphins. Give the closest wall a curated
+      // mix of moving and still subjects, then scatter the archive across land.
+      const film = featured ? entrance[(north + 1) * 5 + east + 2]
+        : Math.floor(hash(row, col) * exhibits.length);
       dummy.position.set(Math.sin(lon) * Math.cos(lat), Math.sin(lat), Math.cos(lon) * Math.cos(lat)).multiplyScalar(radius);
       dummy.rotation.set(-lat, lon, 0, "YXZ");
       dummy.scale.set(2 * Math.PI * radius * Math.cos(lat) / count * .955, rowHeight * .90, 1);
@@ -51,13 +56,15 @@ export function createMuseum() {
     }
   }
 
-  const clips = clipNames.map((name, i) => {
-    const video = document.createElement("video");
-    video.loop = video.muted = video.playsInline = true;
-    video.preload = "metadata";
-    video.src = base + name + ".mp4";
+  const clips = exhibits.map((name, i) => {
+    const video = i < clipNames.length ? document.createElement("video") : undefined;
+    if (video) {
+      video.loop = video.muted = video.playsInline = true;
+      video.preload = "metadata";
+      video.src = base + name + ".mp4";
+    }
     const poster = loader.load(base + name + ".jpg");
-    const movie = new T.VideoTexture(video);
+    const movie = video ? new T.VideoTexture(video) : undefined;
     const uniforms = { film: { value: poster as T.Texture }, land: { value: land }, panorama, gray };
     const material = new T.ShaderMaterial({
       uniforms,
@@ -87,7 +94,8 @@ export function createMuseum() {
           float bevel=smoothstep(.003,.009,border)*(1.-smoothstep(.013,.022,border));
           vec3 trim=mix(vec3(.075,.057,.046),vec3(.55,.46,.34),bevel*(.55+.4*vUv.y));
           rgb=mix(trim,rgb,image);
-          float daylight=.56+.44*max(0.,dot(normalize(vNormal),normalize(vec3(-.64,.66,.54))));
+          float daylight=.72+.28*max(0.,dot(normalize(vNormal),normalize(vec3(-.64,.66,.54))));
+          rgb=mix(vec3(dot(rgb,vec3(.2126,.7152,.0722))),rgb,1.+.18*panorama);
           rgb*=mix(1.,daylight,panorama);
           rgb=mix(rgb,vec3(.08,.13,.18),remote*(vGeo.z>.014?1.:.55));
           rgb=mix(rgb,vec3(dot(rgb,vec3(.2126,.7152,.0722))),gray);
@@ -119,12 +127,14 @@ export function createMuseum() {
       }`,
   });
   world.add(new T.Mesh(globeGeometry, globeMaterial));
+  let wave: ReturnType<typeof captureMuseumWave> | undefined;
   function play() {
-    for (const { video } of clips) void video.play().catch(() => {});
+    for (const { video } of clips) void video?.play().catch(() => {});
   }
   return {
     play,
-    pause() { for (const { video } of clips) video.pause(); },
+    captureOcean(renderer: T.WebGLRenderer) { wave = captureMuseumWave(renderer); },
+    pause() { for (const { video } of clips) video?.pause(); },
     render(renderer: T.WebGLRenderer, elapsed: number, aspect: number, reduced: boolean) {
       const duration = reduced ? 11 : 26;
       const t = Math.min(elapsed / duration, 1);
@@ -145,20 +155,30 @@ export function createMuseum() {
         world.rotation.x *= ease(.48,.62,t);
       } else camera.position.z = radius + distance;
       panorama.value = ease(.43,.77,t);
-      gray.value = ease(.86,.98,t);
+      gray.value = ease(.93,.995,t);
       for (const {video, uniforms, movie} of clips) {
-        if (video.readyState >= 2) uniforms.film.value = movie;
+        if (video && movie && video.readyState >= 2) uniforms.film.value = movie;
       }
-      renderer.render(scene, camera);
+      const washDuration = reduced ? .48 : 1.65;
+      if (wave && elapsed < washDuration) {
+        renderer.setRenderTarget(wave.incoming);
+        renderer.render(scene, camera);
+        wave.composite(ease(0, washDuration, elapsed), reduced);
+      } else {
+        wave?.dispose();
+        wave = undefined;
+        renderer.render(scene, camera);
+      }
       return t >= 1;
     },
     dispose() {
+      wave?.dispose();
       for (const clip of clips) {
-        clip.video.pause();
-        clip.video.removeAttribute("src");
-        clip.video.load();
+        clip.video?.pause();
+        clip.video?.removeAttribute("src");
+        clip.video?.load();
         clip.geometry.dispose(); clip.material.dispose();
-        clip.poster.dispose(); clip.movie.dispose();
+        clip.poster.dispose(); clip.movie?.dispose();
       }
       world.traverse(object => { if (object instanceof T.InstancedMesh) object.dispose(); });
       globeGeometry.dispose(); globeMaterial.dispose(); plate.dispose(); land.dispose();

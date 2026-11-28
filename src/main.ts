@@ -507,10 +507,8 @@ async function start() {
       narration.textContent = "The crane crumples and falls into the sea.";
     } else if (stage === "crane") {
       museum!.play();
-      sound.returnToPortfolio();
-      sound.museumOpening();
-      setStage("museum");
-      for (const title of [craneCredit, craneTitle, ...craneEndingTitles]) title.hidden = true;
+      enterMuseum = true;
+      button.disabled = true;
     } else if (stage === "tv-float") {
       setStage("tv-fall");
     }
@@ -677,9 +675,11 @@ async function start() {
     }
   });
 
+  let enterMuseum = false;
   let museum: ReturnType<typeof createMuseum> | undefined;
   document.addEventListener("visibilitychange", () => {
     if (stage !== "museum" || !museum) return;
+    sound.pauseMuseum(document.hidden);
     if (document.hidden) museum.pause();
     else museum.play();
   });
@@ -904,6 +904,7 @@ async function start() {
       return;
     }
     if (stage === "museum" && museum) {
+      sound.museumMix(age / (endingReduced ? 11 : 26));
       if (museum.render(renderer, age, w / h, endingReduced)) {
         sound.newspaperFlash();
         sound.returnToPortfolio();
@@ -938,7 +939,14 @@ async function start() {
           }
         });
       }
-      if (done && button.hidden) {
+      if (done && enterMuseum) {
+        enterMuseum = false;
+        museum!.captureOcean(renderer);
+        sound.returnToPortfolio();
+        sound.museumOpening();
+        setStage("museum");
+        for (const title of [craneCredit, craneTitle, ...craneEndingTitles]) title.hidden = true;
+      } else if (done && button.hidden) {
         button.querySelector("span")!.textContent = "Enter the museum";
         button.hidden = button.disabled = false;
         narration.textContent = "The camera holds at the stormy waterline. Enter the Museum of the Living.";
