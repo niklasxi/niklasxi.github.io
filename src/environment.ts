@@ -103,6 +103,7 @@ export function createEnvironment(
     uNoise: { value: noiseTexture() },
     uSun: { value: new T.Vector3(-0.22, 0.052, -1).normalize() },
     uBoat: { value: new T.Vector3() },
+    uPaperShadow: { value: new T.Vector4() },
     uAnchor: { value: new T.Vector3() },
     uReflection: { value: reflection.texture },
     uTransmission: { value: transmission.texture },
@@ -143,6 +144,7 @@ export function createEnvironment(
     uniform mat4 uCameraWorld,uInvProj,uViewProjection;
     uniform sampler2D uSand;
     uniform vec3 uCamera,uAnchor;
+    uniform vec4 uPaperShadow;
     uniform float uTime,uDive,uCut;
     ${noiseCode}
     ${skyCode}
@@ -170,6 +172,8 @@ export function createEnvironment(
         float shadow=exp(-dot((sand-uAnchor.xz)/vec2(.88,.52),(sand-uAnchor.xz)/vec2(.88,.52)));
         vec3 floorColor=bed*vec3(.39,.81,.71)*(1.-.55*shadow);
         floorColor+=mix(.35,1.,uClearing)*ca*vec3(.16,.26,.20);
+        vec2 paperOffset = (sand-uPaperShadow.xy) / vec2(.48,.34);
+        floorColor *= 1. - uPaperShadow.z * exp(-dot(paperOffset,paperOffset));
         float fog=exp(-.068*max(0.,dist-3.));
         vec3 deep=mix(vec3(.026,.237,.254),vec3(.055,.436,.423),exp(-line*.73));
         vec3 wet=mix(deep,floorColor,fog);

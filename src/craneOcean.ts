@@ -2,6 +2,7 @@ import * as T from "three";
 import { forgedSteel, makeAnchor, submerge } from "./anchor";
 import { createEnvironment, seabed } from "./environment";
 import { createSeabedDetails } from "./tether";
+import { createOceanRain } from "./oceanRain";
 import { createSplash } from "./splash";
 import { ease } from "./waves";
 
@@ -23,6 +24,7 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
   un.uAnchor.value.copy(anchor.position);
   const details = createSeabedDetails(world);
   const splash = createSplash(world);
+  const rain = createOceanRain(world, un);
   const impact = new T.Vector3(anchor.position.x - .65, 0, anchor.position.z + .45);
   const bubbles=new T.InstancedMesh(new T.SphereGeometry(1,8,6),
     new T.MeshPhongMaterial({color:0x629998,specular:0xffffff,shininess:75,transparent:true,opacity:.54}),100);
@@ -32,7 +34,16 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
   const dummy=new T.Object3D();
   const lensEntry=new T.Vector3();
   let crossed=false, crossingTime=0;
-  return {world, impact, reflect(renderer: T.WebGLRenderer, scene: T.Scene, focus: T.Vector3, surfaceY: number) {
+  return {
+    world,
+    impact,
+    shadePaper(material: T.MeshStandardMaterial) {
+      submerge(material, un, true);
+    },
+    setPaperShadow(position: T.Vector3, contact: number) {
+      un.uPaperShadow.value.set(position.x + .09, position.z - .08, .58 * contact, 0);
+    },
+    reflect(renderer: T.WebGLRenderer, scene: T.Scene, focus: T.Vector3, surfaceY: number) {
     mirror.copy(camera, false);
     mirror.layers.set(1);
     mirror.position.y = 2 * surfaceY - camera.position.y;
@@ -68,6 +79,7 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
     }
     // Water and seabed depth occlude submerged objects throughout the crossing.
     details.update(1, shot);
+    rain(shot, sinceImpact, pullback, reduced);
     impact.y = surfaceY;
     splash(sinceImpact,impact,reduced,height);
     bubbles.visible=sinceImpact>=0 && sinceImpact<3;

@@ -48,6 +48,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
   const flex = createFlexiblePaper(geometry, 3);
   const ball = new T.Mesh(geometry, paper.clone());
   ball.material.onBeforeCompile = paper.onBeforeCompile;
+  ocean.shadePaper(ball.material);
   ball.frustumCulled = false;
   const vertex = new T.Vector3(), hinge = new T.Vector3(), up = new T.Vector3(0,1,0);
   // Each crease turns the projecting part of the previous fold back over itself.
@@ -117,7 +118,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
   }
 
   return function renderCrane(renderer: T.WebGLRenderer, age: number, aspect: number,
-    reduced: boolean, rustle: (beat: number, strength: number) => void, foley: (cue: number) => void, killAt = Infinity) {
+    reduced: boolean, rustle: (beat: number, strength: number) => void, foley: (cue: number) => void, rainSound: (level: number, underwater: number) => void, killAt = Infinity) {
     const desktopSpread = reduced ? 0 : ease(1.05, 1.75, aspect);
     const travelDuration = reduced ? 21 : 31;
     const t = Math.min(age, killAt);
@@ -292,6 +293,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
       camera.lookAt(focus.set(0,.35,0).lerp(target,follow));
       camera.position.sub(oceanOffset);
       ball.position.sub(oceanOffset);
+      ocean.setPaperShadow(ball.position, ease(.68, 1, sink));
       focus.sub(oceanOffset);
       const pullback = ease(6.2, reduced ? 7.35 : 9.65, shot);
       const wideDistance = Math.max(11.8, 11.0 / aspect);
@@ -304,6 +306,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
       const wet = ease(-.06,.32,wave(camera.position.x,camera.position.z,shot,swell)-camera.position.y);
       // Keep object lighting independent of individual crests crossing the lens.
       const underwater = ease(hitTime, hitTime + 1.1, shot);
+      rainSound(ease(.23, .95, shot), underwater * (1 - .84 * pullback));
       fog.color.copy(deep);
       fog.density = .085 * underwater * (1 - .58 * pullback);
       scene.fog=fog;

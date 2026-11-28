@@ -31,7 +31,6 @@ export const televisionFallStart = 10.3;
 export const televisionGone = 15.4;
 const sweepStart = 0.44;
 const diveStart = 4.95;
-const coverShot = 6.7;
 const diveEnd = 8.35;
 const reducedCoverShot = 1.45;
 const reducedDiveEnd = 2.35;
@@ -54,10 +53,10 @@ export function createCosmicEnding(tv: Television) {
   const cabinet = tv.object;
   cabinet.visible = true;
   cabinet.scale.setScalar(1);
-  const fill = new T.HemisphereLight(0xc5d0dc, 0x334354, 0.95);
-  const key = new T.DirectionalLight(0xffc48a, 3.6);
+  const fill = new T.HemisphereLight(0xa6b9d2, 0x273344, 0.50);
+  const key = new T.DirectionalLight(0xffce9e, 2.85);
   key.position.set(5, 4, -1);
-  const bounce = new T.DirectionalLight(0xd4e1f0, 1.1);
+  const bounce = new T.DirectionalLight(0xd4e1f0, 0.65);
   bounce.position.set(-3, 2, 4);
   scene.add(sky.mesh, cabinet, fill, key, bounce);
 
@@ -117,9 +116,8 @@ export function createCosmicEnding(tv: Television) {
         -depth,
       );
       cabinet.visible = occultation.visible = t < televisionGone;
-      // Pull the set away at an exponential rate: the black hole stays the same
-      // size on screen, so the shrinking TV makes it feel enormous.
       cabinet.scale.setScalar(Math.exp(-(reduced ? 1.7 : 2.2) * fall));
+      key.intensity = 2.85 + 1.25 * fall;
       const shadowDepth = 77;
       occultation.position.set(ox * shadowDepth, oy * shadowDepth, -shadowDepth);
       occultation.scale.setScalar(shadowDepth * tan * shortSide * 0.068);
@@ -141,15 +139,16 @@ export function createCosmicEnding(tv: Television) {
         const orbitZoom = 1 + 1.55 * sweep;
         // Keep the rim in view for the close pass, then aim inside the shadow
         // and enlarge it past every edge of the frame, even on a tall phone.
-        const horizonZoom = 14.5 * Math.max(aspect, 1 / aspect);
-        const horizonCrossing = ease(coverShot + 0.35, diveEnd, shot);
-        center.x = T.MathUtils.lerp(center.x, 0.5, sweep) - T.MathUtils.lerp(0.11, 0.04, portrait) * skim;
-        center.y = T.MathUtils.lerp(center.y, 0.5, sweep) - T.MathUtils.lerp(0.27, 0.34, portrait) * skim;
+        const horizonZoom = 25 * Math.max(aspect, 1 / aspect);
+        const approach = ease(diveStart - .30, diveEnd, shot);
+        const inward = approach * approach;
+        center.x = T.MathUtils.lerp(center.x, 0.5, sweep) - T.MathUtils.lerp(0.075, 0.032, portrait) * skim;
+        center.y = T.MathUtils.lerp(center.y, 0.5, sweep) - T.MathUtils.lerp(0.17, 0.22, portrait) * skim;
         view.set(
-          4.15 * sweep + 0.95 * dive,
-          T.MathUtils.lerp(0.067 + 0.37 * rise, 0.22, dive),
-          0.148 + 0.62 * Math.sin(Math.PI * sweep) - 2.18 * dive,
-          orbitZoom * Math.pow(horizonZoom / orbitZoom, dive) * 2 ** horizonCrossing,
+          2.8 * sweep + 0.72 * dive,
+          T.MathUtils.lerp(0.067 + 0.29 * rise, 0.18, dive),
+          0.148 + 0.45 * Math.sin(Math.PI * sweep) - 0.95 * dive,
+          orbitZoom * Math.pow(horizonZoom / orbitZoom, inward),
         );
         visibility -= ease(diveEnd - 0.48, diveEnd, shot);
       }

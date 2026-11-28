@@ -56,7 +56,9 @@ const landingTitle = document.querySelector<HTMLHeadingElement>("#landing-title"
 const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
 const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
 const lightTitle = document.querySelector<HTMLElement>("#light-title")!;
-const tvTitle = document.querySelector<HTMLElement>("#tv-title")!;
+const glideFact = document.querySelector<HTMLElement>("#glide-fact")!;
+const tvFacts = Array.from(document.querySelectorAll<HTMLElement>("[data-tv-fact]"));
+const glideDuration = 7.5;
 const voidTitle = document.querySelector<HTMLElement>("#void-title")!;
 const craneTitle = document.querySelector<HTMLElement>("#crane-title")!;
 const craneCredit = document.querySelector<HTMLElement>("#crane-credit")!;
@@ -66,6 +68,20 @@ const motion = matchMedia("(prefers-reduced-motion: reduce)");
 async function start() {
   const sound = prepareSound();
   document.querySelector("#turn-newspaper")!.addEventListener("click", sound.startDesk);
+  document.querySelector("#about-button")!.addEventListener("click", sound.startDesk);
+  const visibleHeroes = new Set<Element>();
+  const heroChanges = new MutationObserver(records => {
+    for (const { target } of records) {
+      const hero = target as HTMLElement;
+      if (hero.hidden) visibleHeroes.delete(hero);
+      else if (!visibleHeroes.has(hero)) {
+        visibleHeroes.add(hero);
+        sound.cue("title");
+      }
+    }
+  });
+  document.querySelectorAll(".hero-title, .drift-heading").forEach(hero =>
+    heroChanges.observe(hero, { attributes: true, attributeFilter: ["hidden"] }));
   const clicked = waitForPortfolioClick(sound.start);
   const renderer = new T.WebGLRenderer({
     canvas,
@@ -265,10 +281,21 @@ async function start() {
     age = 0;
     stageDuration = duration;
     canvas.dataset.stage = s;
+    switch (s) {
+      case "intro": case "surface": sound.score("storm"); break;
+      case "descending": case "anchored": sound.score("submerged"); break;
+      case "releasing": case "drift": case "transform": case "sheet":
+      case "folding": case "flight": case "last-light": sound.score("flight"); break;
+      case "crane": sound.score("crane"); break;
+      case "blackout": sound.score("silent"); break;
+      case "space": case "tv-float": case "tv-fall":
+      case "camera-dive": case "end": sound.score("space"); break;
+    }
     releaseTitle.hidden = s !== "releasing";
     releaseTitle.style.opacity = "";
     lightTitle.hidden = s !== "last-light";
-    tvTitle.hidden = s !== "tv-float";
+    tvFacts.forEach((card, i) => { card.hidden = s !== "tv-float" || i !== 0; });
+    glideFact.hidden = s !== "flight";
     voidTitle.hidden = true;
     if (s === "end") {
       sound.endSpace(0.13);
@@ -300,7 +327,7 @@ async function start() {
       headingIndex = 0;
       headingSince = 0;
       sound.settleOcean();
-      sound.cue("title");
+
     }
     if (s === "descending") {
       sound.cue("dive");
@@ -418,7 +445,7 @@ async function start() {
     const next = driftHeadings[lastDriftHeading];
     next.style.opacity = "";
     next.hidden = false;
-    sound.cue("title", lastDriftHeading);
+
     narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
   }
 
@@ -449,6 +476,7 @@ async function start() {
       setStage("folding", timing.foldDuration);
     } else if (stage === "crane" && killAt === Infinity) {
       killAt = age;
+      sound.score("rain");
       button.disabled = button.hidden = true;
       narration.textContent = "The crane crumples and falls into the sea.";
     } else if (stage === "crane") {
@@ -731,7 +759,7 @@ async function start() {
             age = stageDuration;
             break;
           case "flight":
-            age = reduced ? 1.7 : 3.8;
+            age = glideDuration;
             break;
           case "space":
             spaceTimeline = televisionFallStart;
@@ -748,6 +776,7 @@ async function start() {
           case "crane":
             if (killAt === Infinity) {
               killAt = age;
+              sound.score("rain");
               button.hidden = button.disabled = true;
               age += endingReduced ? 7.35 : 9.65;
             } else if (!button.hidden) {
@@ -809,7 +838,11 @@ async function start() {
     }
     if (started) age += dt;
     time += dt * (reduced ? 0.42 : 1);
-    if (stage === "flight" && age >= (reduced ? 1.7 : 3.8)) setStage("last-light", reduced ? 2.8 : 4.3);
+    if (stage === "tv-float") {
+      const active = Math.min(tvFacts.length - 1, Math.floor(age / 8));
+      if (tvFacts[active].hidden) tvFacts.forEach((card, i) => { card.hidden = i !== active; });
+    }
+    if (stage === "flight" && age >= glideDuration) setStage("last-light", reduced ? 2.8 : 4.3);
     if (stage === "last-light" && age >= stageDuration) setStage("blackout", reduced ? 0.65 : 1.15);
     const startingTelevision = stage === "blackout" && age >= stageDuration;
     if (stage === "blackout") {
@@ -830,7 +863,7 @@ async function start() {
       return;
     }
     if (stage === "crane") {
-      const done = renderCrane(renderer, age, w / h, endingReduced, sound.craneWing, sound.craneLanding, killAt);
+      const done = renderCrane(renderer, age, w / h, endingReduced, sound.craneWing, sound.craneLanding, sound.craneRain, killAt);
       // The question follows the viewer’s decision to end the flight.
       const duration = endingReduced ? 5.8 : 10.8;
       const shot = Math.max(0, age - killAt);
@@ -941,7 +974,7 @@ async function start() {
           button.disabled = true;
           button.hidden = true;
         }
-        sound.cue("title", headingIndex);
+
         narration.textContent = next.innerText.replace(/\s+/g, " ").trim();
       }
     } else if (stage === "drift" && headingIndex === lastDriftHeading && !findOutShown) {
@@ -1308,7 +1341,7 @@ async function start() {
       }
 
       const finalGlide = ending || stage === "last-light" ? 1
-        : stage === "flight" ? ease(0, reduced ? 1.7 : 3.8, age) : 0;
+        : stage === "flight" ? ease(0, glideDuration, age) : 0;
       boat.rotateX(-0.24 * finalGlide);
       boat.rotateY(0.17 * finalGlide);
       paper.uniforms.uFlight.value = ease(0, timing.launchEnd, elapsed);

@@ -1,4 +1,5 @@
 import { planeCreases } from "./paperFlight";
+import scoreUrl from "../Cold Room Tension.mp3?url";
 import oceanUrl from "./assets/ocean-waves.mp3?url";
 import thunderUrl from "./assets/dry-thunder.mp3?url";
 import splashUrl from "./assets/water-splash.mp3?url";
@@ -22,6 +23,38 @@ function preloadEffect(url: string) {
   return fetch(url)
     .then((response) => response.arrayBuffer())
     .catch(() => null);
+}
+
+// A stereo shower made from overlapping broadband impacts. Wrap the tails
+// across the buffer boundary so the bed loops without a seam.
+function createRainBuffer(context: AudioContext) {
+  const rate = context.sampleRate;
+  const length = rate * 7;
+  const buffer = context.createBuffer(2, length, rate);
+  const left = buffer.getChannelData(0);
+  const right = buffer.getChannelData(1);
+  for (let i = 0; i < length; i++) {
+    const mist = (Math.random() * 2 - 1) * .15;
+    left[i] = mist + (Math.random() * 2 - 1) * .19;
+    right[i] = mist + (Math.random() * 2 - 1) * .19;
+  }
+  for (let drop = 0; drop < 1650; drop++) {
+    const start = Math.floor(Math.random() * length);
+    const duration = .007 + Math.random() * .031;
+    const decay = Math.exp(-5 / (duration * rate));
+    const pitch = (900 + Math.random() * 2800) * 2 * Math.PI / rate;
+    const pan = .12 + Math.random() * .76;
+    let envelope = .10 + Math.random() ** 2 * .40;
+    for (let i = 0; i < duration * rate; i++) {
+      const index = (start + i) % length;
+      const attack = Math.min(1, i / (rate * .0011));
+      const impact = envelope * attack * (.72 * (Math.random() * 2 - 1) + .28 * Math.sin(pitch * i));
+      left[index] += impact * (1 - pan);
+      right[index] += impact * pan;
+      envelope *= decay;
+    }
+  }
+  return buffer;
 }
 
 export function prepareSound() {
@@ -62,6 +95,8 @@ export function prepareSound() {
   } | undefined;
   let surfGain: GainNode | undefined;
   let wind: { gain: GainNode; lowpass: BiquadFilterNode; stereo: StereoPannerNode } | undefined;
+  let rain: { source: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode } | undefined;
+  let rainBuffer: AudioBuffer | undefined;
   let creaseFilter: BiquadFilterNode | undefined;
   let stormGain: GainNode | undefined;
   let stormToken = 0;
@@ -97,6 +132,42 @@ export function prepareSound() {
       audio = { context, output };
     }
     return audio;
+  }
+
+  const soundtrack = new Audio();
+  soundtrack.loop = true;
+  let scoreGain: GainNode | undefined;
+  let scoreFilter: BiquadFilterNode | undefined;
+  let scoreCue: keyof typeof scoreMix = "desk";
+  // Each pair controls level and high-frequency detail in the same recording.
+  const scoreMix = {
+    desk: [.32, 3900], storm: [.44, 5200], submerged: [.36, 1700],
+    flight: [.53, 15500], space: [.40, 7400], crane: [.33, 8600], rain: [.39, 3200], silent: [0, 5200],
+  } as const;
+
+  function score(cue: keyof typeof scoreMix) {
+    scoreCue = cue;
+    if (!audio || !scoreGain || !scoreFilter) return;
+    const now = audio.context.currentTime;
+    const [level, cutoff] = scoreMix[cue];
+    const gain = scoreGain.gain;
+    gain.cancelAndHoldAtTime(now);
+    gain.linearRampToValueAtTime(level, now + (cue === "silent" ? .035 : 1.4));
+    scoreFilter.frequency.setTargetAtTime(cutoff, now, .55);
+  }
+
+  function startScore() {
+    const { context, output } = setupAudio();
+    if (!scoreGain) {
+      soundtrack.src = scoreUrl;
+      scoreGain = context.createGain();
+      scoreGain.gain.value = 0;
+      scoreFilter = context.createBiquadFilter();
+      scoreFilter.Q.value = .5;
+      context.createMediaElementSource(soundtrack).connect(scoreFilter).connect(scoreGain).connect(output);
+      score(scoreCue);
+    }
+    if (soundtrack.paused) void soundtrack.play().catch(() => {});
   }
 
   function stopPaper() {
@@ -135,6 +206,16 @@ export function prepareSound() {
     wind.gain.gain.cancelScheduledValues(now);
     if (immediate) wind.gain.gain.setValueAtTime(0, now);
     else wind.gain.gain.setTargetAtTime(0, now, 0.22);
+  }
+
+  function stopRain() {
+    if (!rain) return;
+    const { source, gain } = rain;
+    const now = gain.context.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setTargetAtTime(0, now, .16);
+    source.stop(now + .95);
+    rain = undefined;
   }
 
   function resetStorm() {
@@ -348,11 +429,16 @@ export function prepareSound() {
     endSpace(fade = 0.5) {
       stopSpace(fade);
     },
+    score,
     startDesk() {
+      score("desk");
+      startScore();
       const { context } = setupAudio();
       void context.resume().catch(() => {});
     },
     start() {
+      score("storm");
+      startScore();
       const { context, output } = setupAudio();
       stopPaper();
       stopSpace(0.2);
@@ -385,6 +471,8 @@ export function prepareSound() {
       filter.connect(output);
       waterFilter = filter;
       // Prepare the airy accents once, away from camera and title transitions.
+      // Prepare the loop during the opening so it is ready for the water entry.
+      rainBuffer = createRainBuffer(context);
       airBuffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
       const air = airBuffer.getChannelData(0);
       for (let i = 0; i < air.length; i++) air[i] = Math.random() * 2 - 1;
@@ -488,6 +576,33 @@ export function prepareSound() {
       while (foldBoundaries[nextFold + 1] <= progress) nextFold++;
       const length = foldBoundaries[++nextFold] - progress;
       playPaper(foldBuffer, progress, length, duration * length);
+    },
+    craneRain(level: number, underwater: number) {
+      if (!audio || level <= 0) return;
+      const { context, output } = audio;
+      const now = context.currentTime;
+      if (!rain) {
+        const source = context.createBufferSource();
+        source.buffer = rainBuffer ??= createRainBuffer(context);
+        source.loop = true;
+        const highpass = context.createBiquadFilter();
+        highpass.type = "highpass";
+        highpass.frequency.value = 310;
+        const filter = context.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.value = 6900;
+        filter.Q.value = .25;
+        const gain = context.createGain();
+        gain.gain.value = 0;
+        source.connect(highpass).connect(filter).connect(gain).connect(output);
+        source.onended = () => {
+          for (const node of [source, highpass, filter, gain]) node.disconnect();
+        };
+        source.start();
+        rain = { source, gain, filter };
+      }
+      rain.filter.frequency.setTargetAtTime(6900 * (.088 ** underwater), now, .19);
+      rain.gain.gain.setTargetAtTime(level * (.68 - .34 * underwater), now, .17);
     },
     craneLanding(cue: number) {
       if (cue === 0) {
@@ -632,6 +747,7 @@ export function prepareSound() {
     },
     returnToPortfolio() {
       stopWind();
+      stopRain();
       pulling?.stop();
       pulling = undefined;
       stopSpace(0.4);
@@ -644,6 +760,7 @@ export function prepareSound() {
     },
     lightsOut() {
       stopWind(true);
+      stopRain();
       ocean.pause();
       thunder.pause();
       resetStorm();

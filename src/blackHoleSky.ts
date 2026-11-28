@@ -76,9 +76,9 @@ const skyFragment = `
     float temperature = pow(3.0 / radius, 1.6);
     float doppler = 2.0 * hit.a;
     float heat = clamp(temperature * doppler * (0.72 + 0.30*clouds), 0.0, 1.0);
-    vec3 gas = mix(vec3(0.73,0.15,0.037), vec3(1.0,0.68,0.36), smoothstep(0.12,0.68,heat));
-    gas = mix(gas, vec3(1.0,0.90,0.72), smoothstep(0.64,1.0,heat));
-    float radiance = 2.55 * temperature * density * doppler*doppler*doppler;
+    vec3 gas = mix(vec3(0.67,0.23,0.082), vec3(1.0,0.70,0.42), smoothstep(0.12,0.68,heat));
+    gas = mix(gas, vec3(1.0,0.95,0.83), smoothstep(0.64,1.0,heat));
+    float radiance = 2.05 * temperature * density * doppler*doppler*doppler;
     return vec4(gas * radiance, edge * (0.66 + 0.32*clouds));
   }
 
@@ -99,22 +99,27 @@ const skyFragment = `
     vec4 escape = texture2D(uEscape,vec2(rayIndex, 0.5));
     vec3 bent = (2.0*escape.r-1.0)*eye + (2.0*escape.g-1.0)*tangent;
 
-    vec2 fieldSize = max(uViewport.x/1.463,uViewport.y) * vec2(1.463,1.0);
-    vec2 skyTurn = bank(uView.z-0.148) * ((vUv-0.5)*uViewport);
-    vec2 fieldUv = 0.5 + skyTurn / fieldSize + vec2(0.19*azimuth,0.21*(elevation-0.067));
+    // Anchor distant light to a direction in space. The foreground can
+    // grow during the approach without magnifying the distant galaxies.
+    vec2 skyOffset = tilt * ((vUv - .5) * uViewport / shortSide) * .63;
+    vec3 skyRay = normalize(-eye + skyOffset.x * right + skyOffset.y * up);
     float bend = 1.0 - smoothstep(0.41, 0.78, slope);
-    vec3 shift = bent - straight;
-    fieldUv += transpose(tilt)*vec2(dot(shift,right),dot(shift,up))*(0.32*bend*shortSide)/fieldSize;
+    vec3 direction = normalize(skyRay + .72 * bend * (bent - straight));
+    vec2 fieldUv = vec2(.5 + atan(direction.x, -direction.z) / pi,
+      .55 + asin(clamp(direction.y,-1.,1.)) * .82);
     vec3 color = texture2D(uField, fieldUv).rgb * mix(1.0, escape.a, bend);
     if (slope < maximumSlope) {
       float crossing = firstCrossing(eye, tangent);
       vec4 nearDisk = emission(diskHit(eye, tangent, rayIndex, crossing));
       vec4 farDisk = emission(diskHit(eye, tangent, rayIndex, crossing + pi));
-      color = mix(mix(color,farDisk.rgb,farDisk.a),nearDisk.rgb,nearDisk.a);
+      // Add the glowing far arc through the gas while the denser near
+      // side attenuates it, rather than layering two opaque bands.
+      color *= (1. - .72 * nearDisk.a) * (1. - .55 * farDisk.a);
+      color += nearDisk.rgb * nearDisk.a + farDisk.rgb * farDisk.a * (1. - .65 * nearDisk.a);
 
       float halo = exp(-26.0 * abs(slope - 0.167)) * smoothstep(0.13, 0.18, slope);
       float haze = exp(-7.0 * slope - 12.0 * abs(q.y)) * smoothstep(0.19, 0.30, slope);
-      color += vec3(1.0,0.48,0.24) * (0.012 * halo + 0.021 * haze);
+      color += vec3(1.0,0.48,0.24) * (0.004 * halo + 0.010 * haze);
     }
     gl_FragColor = vec4(1.0 - exp(-color * 1.12), 1.0);
     #include <colorspace_fragment>
@@ -126,7 +131,8 @@ const skyFragment = `
 export function createBlackHoleSky() {
   const field = new T.TextureLoader().load(fieldUrl);
   field.colorSpace = T.SRGBColorSpace;
-  field.wrapS = field.wrapT = T.MirroredRepeatWrapping;
+  field.wrapS = T.RepeatWrapping;
+  field.wrapT = T.MirroredRepeatWrapping;
   let seed = 0x68517;
   const noise = new Uint8Array(128 * 128);
   for (let i = 0; i < noise.length; i++) {

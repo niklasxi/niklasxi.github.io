@@ -74,18 +74,18 @@ canvas {
   font-size: clamp(2.7rem, min(7.4vw, 10.4dvh), 8rem);
   text-shadow: 0 2px 24px #28180c78;
 }
-#tv-title {
+.tv-fact {
   font-size: clamp(1.65rem, min(5.5vw, 9dvh), 4.5rem);
   text-shadow: 0 2px 18px #000;
 }
 
-#tv-title h1 {
+.tv-fact h1 {
   margin: 0;
   font: inherit;
   letter-spacing: inherit;
 }
 
-#tv-title p {
+.tv-fact p {
   max-width: 32ch;
   margin: 0.7rem 0 0;
   font-size: clamp(0.9rem, 1.6vw, 1.15rem);
