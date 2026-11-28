@@ -92,7 +92,9 @@ export function prepareSound() {
   let audio: {
     context: AudioContext;
     output: DynamicsCompressorNode;
+    master: GainNode;
   } | undefined;
+  let masterVolume = 1;
   let surfGain: GainNode | undefined;
   let wind: { gain: GainNode; lowpass: BiquadFilterNode; stereo: StereoPannerNode } | undefined;
   let rain: { source: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode } | undefined;
@@ -123,13 +125,15 @@ export function prepareSound() {
     if (!audio) {
       const context = new AudioContext({ latencyHint: "interactive" });
       const output = context.createDynamicsCompressor();
+      const master = context.createGain();
+      master.gain.value = masterVolume;
       output.threshold.value = -8;
       output.knee.value = 12;
       output.ratio.value = 5;
       output.attack.value = 0.004;
       output.release.value = 0.18;
-      output.connect(context.destination);
-      audio = { context, output };
+      output.connect(master).connect(context.destination);
+      audio = { context, output, master };
     }
     return audio;
   }
@@ -412,6 +416,11 @@ export function prepareSound() {
   }
 
   return {
+    setVolume(volume: number) {
+      masterVolume = volume;
+      if (!audio) return;
+      audio.master.gain.setTargetAtTime(volume, audio.context.currentTime, .025);
+    },
     cue,
     settleOcean() {
       if (!surfGain) return;

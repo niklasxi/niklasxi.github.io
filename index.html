@@ -184,6 +184,14 @@
       <noscript>Enable JavaScript to follow the paper boat.</noscript>
     </main>
     <button id="skip-sequence" type="button" hidden>Skip sequence</button>
+    <details class="volume">
+      <summary>Volume</summary>
+      <div class="volume-panel">
+        <label for="master-volume">Master volume</label>
+        <output id="volume-level" for="master-volume" aria-hidden="true">100%</output>
+        <input id="master-volume" type="range" min="0" max="125" value="100" aria-valuetext="100%">
+      </div>
+    </details>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

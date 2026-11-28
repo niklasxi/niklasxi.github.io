@@ -68,6 +68,24 @@ const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
   const sound = prepareSound();
+  const volume = document.querySelector<HTMLInputElement>("#master-volume")!;
+  const volumeLevel = document.querySelector<HTMLOutputElement>("#volume-level")!;
+  const volumeKey = "paper-ocean-volume";
+  try {
+    const savedVolume = localStorage.getItem(volumeKey);
+    if (savedVolume !== null && Number.isFinite(Number(savedVolume))) volume.value = savedVolume;
+  } catch {}
+  function applyVolume() {
+    const percent = volume.value + "%";
+    sound.setVolume(volume.valueAsNumber / 100);
+    volumeLevel.value = percent;
+    volume.setAttribute("aria-valuetext", percent);
+  }
+  applyVolume();
+  volume.addEventListener("input", () => {
+    applyVolume();
+    try { localStorage.setItem(volumeKey, volume.value); } catch {}
+  });
   document.querySelector("#turn-newspaper")!.addEventListener("click", sound.startDesk);
   document.querySelector("#about-button")!.addEventListener("click", sound.startDesk);
   const visibleHeroes = new Set<Element>();
