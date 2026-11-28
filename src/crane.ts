@@ -26,16 +26,26 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
       "diffuseColor.rgb *= mix(vec3(0.87), vec3(1.0), texture2D(map,vMapUv).rgb);");
   };
   geometry.computeBoundingSphere();
-  const clearance = geometry.boundingSphere!.radius + geometry.boundingSphere!.center.length() + .15;
+  let radius = geometry.boundingSphere!.radius + geometry.boundingSphere!.center.length();
   const viewPoint = new T.Vector3();
   const bird = new T.Mesh(geometry, paper);
+  bird.frustumCulled = false;
   bird.rotation.order = "YXZ";
   const positions = geometry.getAttribute("position");
   const tips: { i: number; x: number; y: number }[] = [];
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i);
-    if (Math.abs(x-.01) > 0.075) tips.push({ i, x, y: positions.getY(i) });
+    if (Math.abs(x-.01) > 0.075) {
+      const y = positions.getY(i);
+      tips.push({ i, x, y });
+      // The flap rotates around an offset hinge, so the rest-pose sphere
+      // alone cannot give a safe margin for the closest passes.
+      const hingeX = .01 + Math.sign(x) * .075;
+      const reach = Math.hypot(x - hingeX, y - .35) + Math.hypot(hingeX, .35);
+      radius = Math.max(radius, Math.hypot(reach, positions.getZ(i)));
+    }
   }
+  const clearance = radius + .15;
   const scene = new T.Scene();
   scene.background = new T.Color(0);
   const fill = new T.HemisphereLight(0xffffff, 0x999999);
@@ -76,7 +86,6 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
   const attitudeForRest = new T.Quaternion();
   const finalAttitude = new T.Euler();
   const vertical = new T.Vector3();
-  let orbitPhase = 0;
   // Compile the submerged materials before the interactive drop.
   scene.fog = fog;
   await setupRenderer.compileAsync(scene, camera);
@@ -89,6 +98,7 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
   const flightCenter = new T.Vector3(), flightVelocity = new T.Vector3();
   const guide = new T.Vector3(), acceleration = new T.Vector3();
   const ahead = new T.Vector3();
+  let entrySide = 1;
   let heading = 0;
   let pitch = 0;
   let bank = 0;
@@ -97,30 +107,45 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
   let nextStroke = 0, strokeStart = 0, period = 1, amplitude = 0.6, beat = 0;
   const range = T.MathUtils.randFloat;
   function choosePath(reduced: boolean) {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const height = reduced ? 0.38 : 0.82;
+    entrySide = Math.random() < 0.5 ? -1 : 1;
+    const height = reduced ? .55 : 1;
+    // The first pass comes in from the far side, crosses close to the lens,
+    // then banks out into the distance. Z controls actual camera-space depth.
     path.points = [
-      new T.Vector3(-.55 * side, -0.35, -1.8),
-      new T.Vector3(-0.42 * side, range(-height, height), -1.0),
-      new T.Vector3(range(0.1, 0.44) * side, range(0.1, height), range(-0.6, 0.3)),
-      new T.Vector3(range(0.25, 0.48) * side, range(-height, 0), 1.0),
-      new T.Vector3(range(-0.35, -0.08) * side, range(-height, height), 0.45),
-      new T.Vector3(-0.45 * side, range(0, height), -0.85),
-      new T.Vector3(0.10 * side, 0.05, -0.25),
+      new T.Vector3(.83 * entrySide, -.20 * height, .88),
+      new T.Vector3(.48 * entrySide, range(-.10, .09) * height, .11),
+      new T.Vector3(-.11 * entrySide, range(.16, .28) * height, -.98),
+      new T.Vector3(-.79 * entrySide, range(-.14, .05) * height, -.14),
+      new T.Vector3(-.44 * entrySide, range(-.29, -.14) * height, .92),
+      new T.Vector3(.69 * entrySide, range(-.07, .23) * height, .40),
+      new T.Vector3(.26 * entrySide, range(.22, .37) * height, -.86),
     ];
     nextStroke = 0;
     beat = 0;
     cueIndex = 0;
     pathOffset = 0;
-    orbitPhase = range(0, Math.PI * 2);
     springs.reset();
     folded = false;
   }
 
+  const tangent = Math.tan(T.MathUtils.degToRad(camera.fov / 2));
+  function placeInView(point: T.Vector3, t: number, distance: number, span: number, reduced: boolean, target: T.Vector3) {
+    const depth = distance * (1 + T.MathUtils.clamp(point.z, -1, 1) * span);
+    const horizontalSlope = tangent * camera.aspect;
+    // Leave space for the wing at any bank angle, measured at the current depth.
+    const horizontal = Math.max(0, depth * horizontalSlope - clearance * Math.hypot(1, horizontalSlope));
+    const vertical = Math.max(0, depth * tangent - clearance * Math.hypot(1, tangent));
+    const entrance = entrySide * (1 - ease(0, reduced ? 2.4 : 3.5, t)) * (clearance * 2.4 + depth * horizontalSlope * .22);
+    target.set(
+      T.MathUtils.clamp(point.x, -1, 1) * horizontal + entrance,
+      T.MathUtils.clamp(point.y, -1, 1) * vertical,
+      -depth,
+    );
+  }
+
   return function renderCrane(renderer: T.WebGLRenderer, age: number, aspect: number,
     reduced: boolean, rustle: (beat: number, strength: number) => void, foley: (cue: number) => void, rainSound: (level: number, underwater: number) => void, killAt = Infinity) {
-    const desktopSpread = reduced ? 0 : ease(1.05, 1.75, aspect);
-    const travelDuration = reduced ? 21 : 31;
+    const travelDuration = reduced ? 24 : 28;
     const t = Math.min(age, killAt);
     const entering = age < previousAge;
     if (entering) choosePath(reduced);
@@ -129,41 +154,31 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
     fill.intensity = 1.15;
     key.intensity = 2.1;
     camera.aspect = aspect;
-    const distance = Math.max(10.2, 12.0 / aspect);
+    const depthSpan = reduced ? .20 : .43;
+    const limitingSlope = Math.min(1, aspect) * tangent;
+    const closestDepth = clearance * Math.hypot(1, limitingSlope) / limitingSlope;
+    const distance = Math.max(10.2, 9.3 / aspect, closestDepth / (1 - depthSpan));
     camera.position.set(0, 0.28 * distance, distance);
     camera.lookAt(0, 0.35, 0);
     camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
 
     let segment = t * 6 / travelDuration - pathOffset;
     // Extend the path while the visible segment and heading samples still
     // have the same four spline control points after the shift.
     while (segment >= 4.5) {
-
+      const side = path.points[5].x > 0 ? -1 : 1;
+      const depth = path.points[6].z < 0 ? range(.46, .97) : range(-.97, -.38);
+      const width = depth < 0 ? range(.17, .49) : range(.59, .81);
       path.points.shift();
-      path.points.push(new T.Vector3(range(.22,.46) * Math.cos(pathOffset * 1.21 + orbitPhase), range(-.48,.62), 1.5 * Math.sin(pathOffset * 1.21 + orbitPhase)));
+      path.points.push(new T.Vector3(side * width, range(-.32, .38) * (reduced ? .55 : 1), depth));
       pathOffset++;
       segment--;
     }
-    const progress = segment / 6;
-    const halfWidth = distance * Math.tan(T.MathUtils.degToRad(17.5)) * aspect;
-    path.getPoint(progress, bird.position);
-    const compactWidth = Math.min(.82 * halfWidth, 4.8);
-    // Waypoints already alternate sides. Use more of the desktop frustum
-    // for those sweeps while the camera-space bounds protect the wingtips.
-    const flightWidth = T.MathUtils.lerp(compactWidth, 1.55 * halfWidth, desktopSpread);
-    bird.position.x *= flightWidth;
-    // Look through the bend over a short section of the path, so tight
-    // spline tangents cannot whip the nose around in a single frame.
-    const turnWindow = .065;
-    path.getPoint(Math.min(1, progress + turnWindow), ahead);
-    path.getPoint(Math.max(0, progress - turnWindow), direction);
-    direction.subVectors(ahead, direction);
-    direction.x *= flightWidth;
-    direction.normalize();
-    guide.copy(bird.position);
+    path.getPoint(segment / 6, guide);
     if (entering) {
       flightCenter.copy(guide);
-      flightVelocity.copy(direction).multiplyScalar(.4);
+      flightVelocity.set(0, 0, 0);
     } else if (age <= killAt) {
       // Track the moving guide with a damped spring. The velocity carries
       // the crane through each turn and also drives its actual heading.
@@ -176,15 +191,22 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
         flightCenter.addScaledVector(flightVelocity, h);
       }
     }
-    bird.position.copy(flightCenter);
-    if (flightVelocity.lengthSq() > .004) direction.copy(flightVelocity).normalize();
+    placeInView(flightCenter, t, distance, depthSpan, reduced, viewPoint);
+    bird.position.copy(viewPoint).applyMatrix4(camera.matrixWorld);
+    // Use actual three-dimensional motion for pitch and heading, including
+    // the inward glide and the turn back out when the crane passes the lens.
+    const lookAhead = .26;
+    ahead.copy(flightCenter).addScaledVector(flightVelocity, lookAhead);
+    placeInView(ahead, t + lookAhead, distance, depthSpan, reduced, direction);
+    direction.sub(viewPoint).transformDirection(camera.matrixWorld);
     if (t >= nextStroke) {
       strokeStart = t;
       period = range(0.56, 0.92) * (reduced ? 1.22 : 1);
       amplitude = range(0.42, 0.82) * (reduced ? 0.65 : 1);
       nextStroke = t + period + (Math.random() < 0.43 ? range(0.35, 1.1) : 0);
       beat++;
-      if (Math.abs(bird.position.x) < halfWidth + 0.3) rustle(beat, amplitude);
+      const halfWidth = -viewPoint.z * camera.aspect * tangent;
+      if (Math.abs(viewPoint.x) < halfWidth + clearance) rustle(beat, amplitude);
     }
     const cycle = Math.min(1, (t - strokeStart) / period);
     const envelope = Math.sin(Math.PI * cycle);
@@ -209,24 +231,17 @@ export async function loadCrane(landscape: Promise<T.Texture[]>, setupRenderer: 
     }
     positions.needsUpdate = true;
 
-    camera.updateMatrixWorld();
-    viewPoint.copy(bird.position).applyMatrix4(camera.matrixWorldInverse);
-    const tangent = Math.tan(T.MathUtils.degToRad(camera.fov / 2));
-    const limit = (slope: number) => Math.max(0, -viewPoint.z * slope - clearance * Math.hypot(1, slope));
-    const horizontal = limit(tangent * aspect), verticalLimit = limit(tangent);
-    viewPoint.x = T.MathUtils.clamp(viewPoint.x, -horizontal, horizontal);
-    viewPoint.y = T.MathUtils.clamp(viewPoint.y, -verticalLimit, verticalLimit);
-    bird.position.copy(viewPoint).applyMatrix4(camera.matrixWorld);
-    if (!shot) {
+    if (!shot && direction.lengthSq() > 0) {
       const targetHeading = Math.atan2(direction.x, direction.z);
       const targetPitch = -Math.asin(T.MathUtils.clamp(direction.y, -.5, .5));
       const turn = T.MathUtils.euclideanModulo(targetHeading - heading + Math.PI, 2 * Math.PI) - Math.PI;
       const response = 1 - Math.exp(-dt * 5);
-      const headingStep = T.MathUtils.clamp(turn * response, -2.25 * dt, 2.25 * dt);
+      const turnSpeed = reduced ? .95 : 1.45;
+      const headingStep = T.MathUtils.clamp(turn * response, -turnSpeed * dt, turnSpeed * dt);
       heading = entering ? targetHeading : heading + headingStep;
       pitch = entering ? targetPitch : T.MathUtils.lerp(pitch, targetPitch, response);
       const turnRate = dt > 0 ? headingStep / dt : 0;
-      bank = entering ? 0 : T.MathUtils.lerp(bank, -.48 * turnRate / 2.25, 1 - Math.exp(-dt * 2.2));
+      bank = entering ? 0 : T.MathUtils.lerp(bank, -.43 * turnRate / turnSpeed, 1 - Math.exp(-dt * 2.2));
       desired.set(pitch, heading, bank);
       flightRotation.setFromEuler(desired);
     }
