@@ -613,6 +613,21 @@ export function prepareSound() {
       rain.filter.frequency.setTargetAtTime(6900 * (.088 ** underwater), now, .19);
       rain.gain.gain.setTargetAtTime(level * (.68 - .34 * underwater), now, .17);
     },
+    museumOpening() {
+      if (!audio || !waterFilter || !surfGain) return;
+      const now = audio.context.currentTime;
+      waterFilter.frequency.setTargetAtTime(12500, now, .2);
+      surfGain.gain.cancelScheduledValues(now);
+      surfGain.gain.setTargetAtTime(surfaceGain * .66, now, .3);
+      surfGain.gain.setTargetAtTime(surfaceGain * .06, now + 3, 2.5);
+      if (splashBuffer) {
+        const splash = audio.context.createBufferSource();
+        splash.buffer = splashBuffer;
+        splash.connect(surfGain);
+        splash.onended = () => splash.disconnect();
+        splash.start(now);
+      }
+    },
     craneLanding(cue: number) {
       if (cue === 0) {
         fadeStorm(stormGainLevel, .65, false);

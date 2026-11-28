@@ -1,0 +1,4 @@
+Land mask derived from Natural Earth 1:110m Physical Vectors, Land.
+Natural Earth data are in the public domain.
+https://www.naturalearthdata.com/downloads/110m-physical-vectors/110m-land/
+https://www.naturalearthdata.com/about/terms-of-use/

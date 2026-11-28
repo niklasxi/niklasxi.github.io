@@ -95,7 +95,7 @@ export function printFinalEdition(canvas: HTMLCanvasElement, original: HTMLImage
     photo.data[i] = photo.data[i + 1] = photo.data[i + 2] = gray;
   }
   ctx.putImageData(photo, photoX, photoY);
-  text("Beside the broken chain. Final transmission.", cover.x + cover.width / 2,
+  text("Earth, from the Museum of the Living.", cover.x + cover.width / 2,
     cover.y + cover.height + 24, "italic 17px Georgia", "center");
 
   const columnX = 47 + leadWidth + 37;

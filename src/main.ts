@@ -1,3 +1,4 @@
+import { createMuseum } from "./museum";
 import * as T from "three";
 import "./style.css";
 import { newspaper, portfolio, resetNewspaper, revealFinalEdition, reversePage, waitForPortfolioClick, zoomOutFromCover } from "./portfolio";
@@ -43,6 +44,7 @@ type Stage =
   | "tv-float"
   | "tv-fall"
   | "crane"
+  | "museum"
   | "camera-dive"
   | "end";
 const canvas = document.querySelector<HTMLCanvasElement>("#ocean")!;
@@ -307,7 +309,7 @@ async function start() {
       case "descending": case "anchored": sound.score("submerged"); break;
       case "releasing": case "drift": case "transform": case "sheet":
       case "folding": case "flight": case "last-light": sound.score("flight"); break;
-      case "crane": sound.score("crane"); break;
+      case "museum": case "crane": sound.score("crane"); break;
       case "blackout": sound.score("silent"); break;
       case "space": case "tv-float": case "tv-fall":
       case "camera-dive": case "end": sound.score("space"); break;
@@ -368,6 +370,7 @@ async function start() {
       landingTitle.style.opacity = "";
     }
     if (s === "crane") {
+      museum ??= createMuseum();
       killAt = Infinity;
       craneTitle.hidden = false;
       craneTitle.style.opacity = "";
@@ -435,6 +438,7 @@ async function start() {
       "tv-fall": "The television falls into the black hole while the plane continues toward sunset on its screen.",
       "camera-dive": "The viewpoint sweeps around the glowing disk and plunges toward the black hole.",
       end: "The camera crosses into darkness.",
+      museum: "A wall of moving pictures pulls back to reveal Earth, then becomes the photograph in the final edition.",
       crane: "A lone paper crane flies through the dark. Choose Kill it to send it into the sea.",
     };
     canvas.setAttribute("aria-label", descriptions[s]);
@@ -502,8 +506,11 @@ async function start() {
       button.disabled = button.hidden = true;
       narration.textContent = "The crane crumples and falls into the sea.";
     } else if (stage === "crane") {
-      revealNews = true;
-      button.disabled = true;
+      museum!.play();
+      sound.returnToPortfolio();
+      sound.museumOpening();
+      setStage("museum");
+      for (const title of [craneCredit, craneTitle, ...craneEndingTitles]) title.hidden = true;
     } else if (stage === "tv-float") {
       setStage("tv-fall");
     }
@@ -670,7 +677,12 @@ async function start() {
     }
   });
 
-  let revealNews = false;
+  let museum: ReturnType<typeof createMuseum> | undefined;
+  document.addEventListener("visibilitychange", () => {
+    if (stage !== "museum" || !museum) return;
+    if (document.hidden) museum.pause();
+    else museum.play();
+  });
   let skipRequest: MouseEvent | undefined;
   skipSequence.addEventListener("click", (event) => {
     if (returned) {
@@ -684,8 +696,9 @@ async function start() {
   });
 
   function showPortfolio() {
-    revealNews = false;
-    const edition = stage === "crane" ? revealFinalEdition(canvas, new Date()) : undefined;
+    const edition = stage === "museum" ? revealFinalEdition(canvas, new Date()) : undefined;
+    museum?.dispose();
+    museum = undefined;
     ending?.dispose();
     ending = undefined;
     desk.mesh.visible = false;
@@ -797,6 +810,9 @@ async function start() {
           case "end":
             setStage("crane");
             break;
+          case "museum":
+            age = 26;
+            break;
           case "crane":
             if (killAt === Infinity) {
               killAt = age;
@@ -887,6 +903,14 @@ async function start() {
       if (age >= craneStart) setStage("crane");
       return;
     }
+    if (stage === "museum" && museum) {
+      if (museum.render(renderer, age, w / h, endingReduced)) {
+        sound.newspaperFlash();
+        sound.returnToPortfolio();
+        showPortfolio();
+      }
+      return;
+    }
     if (stage === "crane") {
       const done = renderCrane(renderer, age, w / h, endingReduced, sound.craneWing, sound.craneLanding, sound.craneRain, killAt);
       // The question follows the viewer’s decision to end the flight.
@@ -914,14 +938,10 @@ async function start() {
           }
         });
       }
-      if (done && revealNews) {
-        sound.newspaperFlash();
-        sound.returnToPortfolio();
-        showPortfolio();
-      } else if (done && button.hidden) {
-        button.querySelector("span")!.textContent = "Reveal news";
+      if (done && button.hidden) {
+        button.querySelector("span")!.textContent = "Enter the museum";
         button.hidden = button.disabled = false;
-        narration.textContent = "The camera holds at the stormy waterline. Reveal news to see the final edition.";
+        narration.textContent = "The camera holds at the stormy waterline. Enter the Museum of the Living.";
         if (keyboardAction) button.focus({preventScroll:true});
       }
       return;
