@@ -140,6 +140,13 @@ export function prepareSound() {
     return audio;
   }
 
+  function createAirBuffer(context: AudioContext) {
+    const buffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
+    const air = buffer.getChannelData(0);
+    for (let i = 0; i < air.length; i++) air[i] = Math.random() * 2 - 1;
+    return buffer;
+  }
+
   const soundtrack = new Audio();
   soundtrack.loop = true;
   let scoreGain: GainNode | undefined;
@@ -380,9 +387,10 @@ export function prepareSound() {
   }
 
   function cue(kind: "title" | "dive" | "arrival" | "paper" | "hover", index = 0) {
-    if (!waterFilter || !airBuffer) return;
-    const context = waterFilter.context;
+    if (!audio || !airBuffer) return;
+    const context = audio.context;
     if (context.state !== "running") return;
+    const destination = waterFilter ?? audio.output;
     const now = context.currentTime;
     if (kind === "hover") {
       if (now - lastHover < 0.3) return;
@@ -401,7 +409,7 @@ export function prepareSound() {
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(volume, now + duration * 0.2);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    source.connect(filter).connect(gain).connect(waterFilter);
+    source.connect(filter).connect(gain).connect(destination);
     source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
     source.start(now, 0, duration);
     if (kind !== "title" && kind !== "arrival") return;
@@ -411,7 +419,7 @@ export function prepareSound() {
     toneGain.gain.setValueAtTime(0, now);
     toneGain.gain.linearRampToValueAtTime(kind === "title" ? 0.025 : 0.017, now + 0.06);
     toneGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    tone.connect(toneGain).connect(waterFilter);
+    tone.connect(toneGain).connect(destination);
     tone.onended = () => { tone.disconnect(); toneGain.disconnect(); };
     tone.start(now);
     tone.stop(now + duration);
@@ -424,6 +432,11 @@ export function prepareSound() {
       audio.master.gain.setTargetAtTime(volume, audio.context.currentTime, .025);
     },
     cue,
+    revealAbout() {
+      const { context } = setupAudio();
+      airBuffer ??= createAirBuffer(context);
+      void context.resume().then(() => cue("title")).catch(() => {});
+    },
     settleOcean() {
       if (!surfGain) return;
       const now = surfGain.context.currentTime;
@@ -484,9 +497,7 @@ export function prepareSound() {
       // Prepare the airy accents once, away from camera and title transitions.
       // Prepare the loop during the opening so it is ready for the water entry.
       rainBuffer = createRainBuffer(context);
-      airBuffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
-      const air = airBuffer.getChannelData(0);
-      for (let i = 0; i < air.length; i++) air[i] = Math.random() * 2 - 1;
+      airBuffer ??= createAirBuffer(context);
       const breeze = context.createBufferSource();
       breeze.buffer = airBuffer;
       breeze.loop = true;

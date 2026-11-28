@@ -33,15 +33,33 @@
           </svg>
           Turn newspaper
         </button>
+        <button id="begin-journey" type="button">Begin journey</button>
         <button id="about-button" aria-haspopup="dialog" type="button">About me</button>
         </div>
       </div>
     </div>
     <dialog id="about-page" aria-labelledby="about-heading">
       <canvas id="about-cranes" role="img" aria-label="Four origami cranes turning on a hanging thread"></canvas>
-      <div class="about-intro"><h1 id="about-heading">Hello, I’m Niklas.</h1>
-        <p>I study computer science at LMU and build great stuff.</p></div>
-      <form method="dialog"><button type="submit">Back to newspaper</button></form>
+      <div class="about-intro">
+        <h1 id="about-heading">Hello, I’m Niklas.</h1>
+        <p class="about-lede">I study computer science at LMU and build great stuff.</p>
+        <dl class="about-details">
+          <div><dt>Languages</dt><dd>C++20, C++17, Java, Python, JavaScript</dd></div>
+          <div><dt>Interests</dt><dd>Competitive programming, security research and InfoSec, computer hardware, AI</dd></div>
+          <div><dt>Tools</dt><dd>Git, GitHub Actions, Linux, CMake, Codex, Blender, Docker, Java Modding & Reverse Engineering</dd></div>
+          <div><dt>Project</dt><dd>Maintainer of <a href="https://github.com/AeroAlpine" target="_blank" rel="noreferrer">AeroAlpine</a></dd></div>
+        </dl>
+        <p class="about-note">My primary GitHub account is currently suspended without a reason. I’m using a second account for now.</p>
+      </div>
+      <div class="about-actions">
+        <nav class="about-socials" aria-label="Social profiles">
+          <a href="https://leetcode.com/u/niklasximuenchen/" target="_blank" rel="noreferrer">LeetCode</a>
+          <a href="https://tryhackme.com/p/N1KL4S" target="_blank" rel="noreferrer">TryHackMe</a>
+          <a href="https://github.com/niklasxi" target="_blank" rel="noreferrer">GitHub <span>(second account)</span></a>
+          <a href="https://www.linkedin.com/in/niklas-kost-6376063a7/" target="_blank" rel="noreferrer">LinkedIn</a>
+        </nav>
+        <form method="dialog"><button type="submit">Back to newspaper</button></form>
+      </div>
     </dialog>
     <main aria-label="A Paper Ocean" aria-hidden="true">
       <canvas

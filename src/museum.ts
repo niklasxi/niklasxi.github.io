@@ -16,7 +16,73 @@ function hash(row: number, column: number) {
 
 export function createMuseum() {
   const scene = new T.Scene();
-  scene.background = new T.Color(0x05080d);
+  scene.background = new T.Color(0x020611);
+  const skyGeometry = new T.SphereGeometry(280, 64, 40);
+  const skyMaterial = new T.ShaderMaterial({
+    side: T.BackSide,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+    vertexShader: `varying vec3 direction;
+      void main(){direction=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader: `varying vec3 direction;
+      void main(){
+        vec3 d=normalize(direction);
+        float band=exp(-pow((d.y+.17*d.x+.11*sin(d.z*6.))/.19,2.));
+        float clouds=.5+.5*sin(d.x*19.+d.z*13.)*sin(d.y*23.-d.x*7.);
+        float haze=band*(.32+.68*clouds);
+        vec3 base=mix(vec3(.003,.007,.02),vec3(.009,.019,.041),smoothstep(-.9,.8,d.y));
+        float glow=exp(-pow(length(d.xz-vec2(.34,-.12))/.42,2.));
+        vec3 color=base+haze*vec3(.012,.023,.049)+glow*vec3(.004,.009,.019);
+        gl_FragColor=vec4(color,1.);
+      }`,
+  });
+  const sky = new T.Mesh(skyGeometry, skyMaterial);
+  sky.renderOrder = -1000;
+  scene.add(sky);
+
+  const starCount = 2600;
+  const starGeometry = new T.BufferGeometry();
+  const starPositions = new Float32Array(starCount * 3);
+  const starColors = new Float32Array(starCount * 3);
+  const starSizes = new Float32Array(starCount);
+  let seed = 0x51a7;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < starCount; i++) {
+    const y = random() < .34 ? (random() - .5) * .48 : random() * 2 - 1;
+    const angle = random() * Math.PI * 2;
+    const ring = Math.sqrt(1 - y * y);
+    const offset = i * 3;
+    starPositions[offset] = Math.cos(angle) * ring * 272;
+    starPositions[offset + 1] = y * 272;
+    starPositions[offset + 2] = Math.sin(angle) * ring * 272;
+    const brightness = .55 + random() * .45;
+    const warm = random() < .18;
+    starColors[offset] = brightness * (warm ? .88 : .62);
+    starColors[offset + 1] = brightness * (warm ? .70 : .80);
+    starColors[offset + 2] = brightness * (warm ? .52 : 1);
+    starSizes[i] = random() < .08 ? 3.3 : 2 + random() * .85;
+  }
+  starGeometry.setAttribute("position", new T.BufferAttribute(starPositions, 3));
+  starGeometry.setAttribute("tint", new T.BufferAttribute(starColors, 3));
+  starGeometry.setAttribute("size", new T.BufferAttribute(starSizes, 1));
+  const starMaterial = new T.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: T.AdditiveBlending,
+    toneMapped: false,
+    vertexShader: `attribute vec3 tint;attribute float size;varying vec3 vTint;
+      void main(){vec4 view=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*view;gl_PointSize=size;vTint=tint;}`,
+    fragmentShader: `varying vec3 vTint;
+      void main(){float r=length(gl_PointCoord-vec2(.5));float a=1.-smoothstep(.04,.48,r);if(a<.015)discard;gl_FragColor=vec4(vTint*a*1.25,a);}`,
+  });
+  const stars = new T.Points(starGeometry, starMaterial);
+  stars.frustumCulled = false;
+  scene.add(stars);
+
   const camera = new T.PerspectiveCamera(36, 1, .015, 400);
   const world = new T.Group();
   scene.add(world);
@@ -154,6 +220,8 @@ export function createMuseum() {
         world.rotation.set(.11,-.26*ease(.48,.62,t),0);
         world.rotation.x *= ease(.48,.62,t);
       } else camera.position.z = radius + distance;
+      camera.far = Math.max(400, camera.position.length() + 300);
+      camera.updateProjectionMatrix();
       panorama.value = ease(.43,.77,t);
       gray.value = ease(.93,.995,t);
       for (const {video, uniforms, movie} of clips) {
@@ -181,6 +249,8 @@ export function createMuseum() {
         clip.poster.dispose(); clip.movie?.dispose();
       }
       world.traverse(object => { if (object instanceof T.InstancedMesh) object.dispose(); });
+      scene.remove(sky, stars);
+      skyGeometry.dispose(); skyMaterial.dispose(); starGeometry.dispose(); starMaterial.dispose();
       globeGeometry.dispose(); globeMaterial.dispose(); plate.dispose(); land.dispose();
     },
   };

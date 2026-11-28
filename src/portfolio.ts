@@ -4,6 +4,7 @@ import { printFinalEdition } from "./finalEdition";
 export const portfolio = document.querySelector<HTMLElement>("#portfolio")!;
 const sheet = document.querySelector<HTMLButtonElement>("#newspaper-sheet")!;
 const turn = document.querySelector<HTMLButtonElement>("#turn-newspaper")!;
+const beginJourney = document.querySelector<HTMLButtonElement>("#begin-journey")!;
 export const newspaper = sheet.querySelector<HTMLImageElement>(".newspaper-front")!;
 export const reversePage = sheet.querySelector<HTMLImageElement>(".newspaper-back")!;
 const about = document.querySelector<HTMLButtonElement>("#about-button")!;
@@ -70,6 +71,7 @@ export function resetNewspaper() {
   showSide(false);
   sheet.disabled = false;
   turn.hidden = turn.disabled = false;
+  beginJourney.hidden = beginJourney.disabled = false;
   about.hidden = about.disabled = false;
   sheet.focus({ preventScroll: true });
 }
@@ -79,6 +81,7 @@ export async function zoomOutFromCover(cover: ReturnType<typeof revealFinalEditi
   showSide(false);
   sheet.disabled = true;
   turn.hidden = turn.disabled = true;
+  beginJourney.hidden = beginJourney.disabled = true;
   about.hidden = true;
   const page = sheet.getBoundingClientRect();
   const view = portfolio.getBoundingClientRect();
@@ -102,11 +105,11 @@ export function waitForPortfolioClick(onActivate: () => void) {
   return new Promise<boolean>((resolve) => {
     function activate(event: MouseEvent) {
       const control = event.target instanceof Element ? event.target.closest("button") : null;
-      if (control && control !== sheet) return;
+      if (control && control !== sheet && control !== beginJourney) return;
       finishTurn();
       portfolio.removeEventListener("click", activate);
       // Keep the selected face stable while the WebGL scene finishes loading.
-      turn.disabled = about.disabled = true;
+      turn.disabled = beginJourney.disabled = about.disabled = true;
       onActivate();
       resolve(backFacing);
     }

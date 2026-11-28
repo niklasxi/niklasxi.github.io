@@ -89,7 +89,10 @@ async function start() {
     try { localStorage.setItem(volumeKey, volume.value); } catch {}
   });
   document.querySelector("#turn-newspaper")!.addEventListener("click", sound.startDesk);
-  document.querySelector("#about-button")!.addEventListener("click", sound.startDesk);
+  document.querySelector("#about-button")!.addEventListener("click", () => {
+    sound.score("silent");
+    sound.revealAbout();
+  });
   const visibleHeroes = new Set<Element>();
   const heroChanges = new MutationObserver(records => {
     for (const { target } of records) {
