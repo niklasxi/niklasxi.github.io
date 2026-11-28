@@ -18,6 +18,10 @@ export function flightTiming(reduced: boolean) {
   return { launchEnd, openEnd, foldDuration };
 }
 
+export function airborneSwell(unfold: number, reduced: boolean) {
+  return (reduced ? 0.39 : 1) * (1 - 0.84 * unfold);
+}
+
 // Translation, pitch and roll respond to the same moving air. Resolve loads
 // in short steps so a slow rendered frame cannot kick the sheet into a spin.
 export function createPaperFlight(flatPose: Quaternion) {
@@ -60,7 +64,7 @@ export function createPaperFlight(flatPose: Quaternion) {
       pitch += pitchRate * h;
 
       const sea = wave(position.x, position.z, worldTime - (steps - i - 1) * h,
-        (reduced ? 0.39 : 1) * (1 - 0.76 * spread));
+        airborneSwell(spread, reduced));
       const height = position.y - sea;
       // A short impulse from the crest launches the folded hull. As its area
       // opens, broadside drag checks the fall and the marine updraft carries it.

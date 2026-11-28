@@ -4,7 +4,7 @@ import dolphinUrl from "./assets/dolphin.glb?url";
 import type { createSeaMist } from "./seaMist";
 import { createDolphinBreath } from "./dolphinBreath";
 import { createBreachSplashes } from "./breachSplash";
-import { wave } from "./waves";
+import { ease, wave } from "./waves";
 
 export async function createDolphins(
   scene: T.Scene,
@@ -69,6 +69,9 @@ export async function createDolphins(
     scene.add(mesh);
     return { mesh, originX: 0, originZ: 0, airborne: false, previousPhase: -1 };
   });
+  const horizonStart = new T.Vector3(), across = new T.Vector3(), forward = new T.Vector3();
+  const course = new T.Vector3();
+  let horizonAge = 0;
   let elapsed = 0,
     lastPass = -1;
   return (
@@ -79,7 +82,85 @@ export async function createDolphins(
     reduced: boolean,
     bufferHeight: number,
     active = true,
+    heading?: T.Vector3,
+    oceanOrigin?: T.Vector2,
   ) => {
+    if (heading && oceanOrigin) {
+      if (horizonAge === 0) {
+        // Set a course once in ocean coordinates, then let the pod swim away.
+        camera.getWorldDirection(forward).setY(0).normalize();
+        across.set(-heading.z, 0, heading.x);
+        horizonStart.set(camera.position.x + oceanOrigin.x, 0, camera.position.z + oceanOrigin.y)
+          .addScaledVector(forward, 44).addScaledVector(across, camera.aspect < 1 ? 2.6 : 7);
+        // Swim diagonally into the distance so the breaches read in profile.
+        const angle = T.MathUtils.lerp(.17, .34, ease(.55, 1.5, camera.aspect));
+        course.copy(heading).addScaledVector(across, angle).normalize();
+        across.set(-course.z, 0, course.x);
+        splashes.clear();
+        for (const dolphin of pod) dolphin.previousPhase = -1;
+      }
+      horizonAge += dt;
+      const speed = reduced ? 4.4 : 8.5;
+      const interval = reduced ? 6.4 : 5.2;
+      const duration = reduced ? 1.55 : 1.49;
+      const recoveryDuration = reduced ? .82 : 1;
+      const yaw = Math.atan2(-course.z, course.x);
+      for (let i = 0; i < pod.length; i++) {
+        const dolphin = pod[i];
+        const mesh = dolphin.mesh;
+        const swimTime = horizonAge - i * .72;
+        const cycle = T.MathUtils.euclideanModulo(swimTime, interval + .19 * i);
+        const u = (cycle - .46) / duration;
+        const airborne = swimTime >= 0 && u >= 0 && u <= 1;
+        const lift = reduced ? 1.22 : 2.38;
+        const liftHeight = airborne ? 4 * lift * u * (1 - u) : 0;
+        const entrySpeed = 4 * lift / duration;
+        const recovery = T.MathUtils.clamp((cycle - .46 - duration) / recoveryDuration, 0, 1);
+        const diving = swimTime >= 0 && u > 1 && recovery < 1;
+        // Carry the arc's downward velocity below the surface, then rise
+        // back to swimming depth with zero vertical velocity.
+        const remaining = 1 - recovery;
+        const diveHeight = diving ? -entrySpeed * recoveryDuration * recovery * remaining ** 2 : 0;
+        const verticalSpeed = airborne ? entrySpeed * (1 - 2 * u)
+          : diving ? -entrySpeed * remaining * (1 - 3 * recovery) : 0;
+        const breachPose = airborne ? ease(0, .14, u) : diving ? 1 - ease(.52, 1, recovery) : 0;
+        const stroke = Math.sin(swimTime * 3.9 + i * .56);
+        const lane = (i - 1) * 3.1 + .46 * Math.sin(swimTime * .76 + i);
+        const distance = speed * horizonAge - i * 3.3;
+        const position = mesh.position.copy(horizonStart)
+          .addScaledVector(course, distance).addScaledVector(across, lane);
+        const height = wave(position.x, position.z, time, swell);
+        position.x -= oceanOrigin.x;
+        position.z -= oceanOrigin.y;
+        position.y = height - .46 + liftHeight + diveHeight + .22 * stroke * (1 - breachPose);
+        mesh.visible = true;
+        const pitch = Math.atan2(verticalSpeed, speed);
+        mesh.rotation.set(0, yaw, T.MathUtils.lerp(.10 * stroke, pitch, breachPose), "YZX");
+        mesh.morphTargetInfluences![0] = .5 + .45 * stroke;
+
+        const previous = u < dolphin.previousPhase ? -1 : dolphin.previousPhase;
+        if (swimTime >= 0) {
+          for (const [contact, phase] of [0.10, 0.94].entries()) {
+            if (previous >= phase || u < phase || u > 1.16) continue;
+            const lead = contact ? .68 : .18;
+            splashes.strike(i * 2 + contact, position.x + course.x * lead,
+              position.z + course.z * lead, contact ? .93 : .62, time, swell);
+          }
+          if (i === 0 && previous < .29 && u >= .29 && u < .55) {
+            const origin = breath.exhale(mesh, blowhole, speed, 1.1, reduced, course);
+            projectedBreath.copy(origin).project(camera);
+            if (projectedBreath.z < 1 && Math.abs(projectedBreath.x) < 1 && Math.abs(projectedBreath.y) < 1) {
+              onExhale(projectedBreath.x, camera.position.distanceTo(origin));
+            }
+          }
+        }
+        dolphin.previousPhase = u;
+      }
+      splashes.update(dt, time, swell, bufferHeight);
+      breath.update(dt, bufferHeight);
+      return;
+    }
+    horizonAge = 0;
     if (!active) {
       for (const dolphin of pod) dolphin.mesh.visible = false;
       splashes.clear();

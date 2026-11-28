@@ -335,7 +335,8 @@ export function createEnvironment(
       }
       vec3 foamColor=mix(mirrorSky*.55+vec3(.32,.38,.39),vec3(.95,.93,.87),.55+.35*sunFacing);
       col=mix(col,foamColor,clamp((foam+ring)*smoothstep(.30,.76,lacy),0.,.84));
-      if(uWake>.99) {
+      if(uBreaches[0].z>=0. || uBreaches[1].z>=0. || uBreaches[2].z>=0. ||
+         uBreaches[3].z>=0. || uBreaches[4].z>=0. || uBreaches[5].z>=0.) {
         float whitewater=0.;
         for(int i=0; i<6; i++) {
           vec4 event=uBreaches[i];

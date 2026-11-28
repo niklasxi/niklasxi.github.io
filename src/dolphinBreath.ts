@@ -54,13 +54,14 @@ export function createDolphinBreath(scene: T.Scene) {
       speed: number,
       climb: number,
       reduced: boolean,
+      heading?: T.Vector3,
     ) {
       dolphin.localToWorld(uniforms.origin.value.copy(blowhole));
       uniforms.up.value
         .set(-0.16, 1, 0)
         .applyQuaternion(dolphin.quaternion)
         .normalize();
-      uniforms.velocity.value.set(-speed, climb, -0.4);
+      uniforms.velocity.value.set(heading ? heading.x * speed : -speed, climb, heading ? heading.z * speed : -0.4);
       uniforms.strength.value = reduced ? 0.76 : 1;
       uniforms.age.value = 0;
       return uniforms.origin.value;

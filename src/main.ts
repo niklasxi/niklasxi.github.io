@@ -21,7 +21,7 @@ import { cameraDiveSwells, createCosmicEnding, frameLastLight, televisionFallSta
 import { loadCrane } from "./crane";
 import { loadTelevision } from "./television";
 import { createPlane } from "./plane";
-import { createPaperFlight, flightTiming } from "./paperFlight";
+import { airborneSwell, createPaperFlight, flightTiming } from "./paperFlight";
 import { createEnvironment } from "./environment";
 import { createTether, createSeabedDetails } from "./tether";
 import { wave, ease } from "./waves";
@@ -230,6 +230,7 @@ async function start() {
   let airAge = 0, foldStartedAt = Infinity;
   let shedWater = false;
   const trackedPosition = new T.Vector3(), foldCenter = new T.Vector3();
+  let flightCameraY = 0;
   const airAttitude = new T.Quaternion(), airEuler = new T.Euler();
   const departureDirection = new T.Vector3();
   const flightPosition = new T.Vector3(),
@@ -367,6 +368,7 @@ async function start() {
       const entrySpeed = (reduced ? 1.15 : 2.85) * (1 - Math.exp(-freedFor / 0.65));
       flight.reset(boat.position, entrySpeed);
       trackedPosition.copy(boat.position);
+      flightCameraY = trackedPosition.y;
       springs.reset();
       shedWater = false;
       sound.takeoff(duration);
@@ -1318,7 +1320,7 @@ async function start() {
         const windExposure = ease(0.18, timing.launchEnd + 0.65, elapsed) * (stage === "folding" ? 0.65 : 1);
         sound.fly(Math.hypot(velocity.x, velocity.z), air.gust, air.crosswind, windExposure);
       }
-      const swell = (reduced ? 0.39 : 1) * (1 - 0.76 * unfold);
+      const swell = airborneSwell(unfold, reduced);
       const seaLevel = wave(position.x, position.z, time, swell);
       const origin = un.uOceanOrigin.value;
       origin.set(Math.trunc(position.x / 2048) * 2048, Math.trunc(position.z / 2048) * 2048);
@@ -1392,10 +1394,12 @@ async function start() {
         boatGeometry.boundingBox!.getCenter(foldCenter).applyQuaternion(boat.quaternion).add(position);
       }
       trackedPosition.lerp(foldCenter, skip ? 1 : 1 - Math.exp(-dt * (reduced ? 8 : 5.2)));
+      flightCameraY = T.MathUtils.lerp(flightCameraY, trackedPosition.y, skip ? 1 : 1 - Math.exp(-dt * 1.18));
       const back = Math.max(14.4, 10.4 / (2 * tan * aspect));
       const orbit = motionScale * (0.12 * unfold + 0.50 * ease(0, 1, fold));
       const elevation = 1.6 + 0.6 * unfold + 0.85 * ease(0.15, 1, fold);
-      camGoalLook.set(trackedPosition.x - origin.x, trackedPosition.y + 0.10, trackedPosition.z - origin.y);
+      const cameraY = T.MathUtils.lerp(trackedPosition.y, flightCameraY, ease(.75, 1, fold));
+      camGoalLook.set(trackedPosition.x - origin.x, cameraY + 0.10, trackedPosition.z - origin.y);
       camGoalPos.copy(camGoalLook);
       camGoalPos.x += Math.sin(orbit) * back + filteredCursor.x * motionWeight * 0.15;
       camGoalPos.y += elevation;
@@ -1404,7 +1408,8 @@ async function start() {
       camera.position.copy(transCamStartPos).add(flightPosition).sub(transStartPos).lerp(camGoalPos, frameIn);
       look.copy(transCamStartLook).add(flightPosition).sub(transStartPos).lerp(camGoalLook, frameIn);
       if (ending || stage === "flight" || stage === "last-light") {
-        frameLastLight(flightPosition, sunDir, aspect, tan, finalGlide, camera.position, look);
+        camGoalLook.copy(flightPosition).setY(flightCameraY);
+        frameLastLight(camGoalLook, sunDir, aspect, tan, finalGlide, camera.position, look);
       }
       camera.lookAt(look);
       camera.updateMatrixWorld();
@@ -1417,7 +1422,9 @@ async function start() {
       const drip = !shedWater && elapsed >= timing.launchEnd * 0.62;
       if (drip) shedWater = true;
       bowSpray(dt, time, boat, contact, swell, reduced, drip);
-      dolphins?.(dt, time, camera, swell, reduced, canvas.height, elapsed < timing.launchEnd);
+      const horizonPod = !ending && (stage === "flight" || stage === "last-light");
+      dolphins?.(dt, time, camera, swell, reduced, canvas.height, elapsed < timing.launchEnd,
+        horizonPod ? departureDirection : undefined, origin);
       un.uContact.value = contact;
       un.uWake.value = contact;
       un.uBoat.value.copy(flightPosition);
