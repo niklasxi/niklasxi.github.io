@@ -63,7 +63,7 @@ const glideDuration = 7.5;
 const voidTitle = document.querySelector<HTMLElement>("#void-title")!;
 const craneTitle = document.querySelector<HTMLElement>("#crane-title")!;
 const craneCredit = document.querySelector<HTMLElement>("#crane-credit")!;
-const craneQuestion = document.querySelector<HTMLElement>("#crane-question")!;
+const craneEndingTitles = Array.from(document.querySelectorAll<HTMLElement>("[data-crane-ending]"));
 const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
 async function start() {
@@ -351,8 +351,7 @@ async function start() {
       killAt = Infinity;
       craneTitle.hidden = false;
       craneTitle.style.opacity = "";
-      craneQuestion.hidden = true;
-      craneQuestion.style.opacity = "";
+      craneEndingTitles.forEach(title => { title.hidden = true; });
     }
     if (s === "surface" || s === "anchored") sound.cue("arrival");
     if (s === "transform") {
@@ -707,7 +706,7 @@ async function start() {
         title.hidden = true;
         title.style.opacity = "";
       });
-      for (const title of [craneTitle, craneQuestion, craneCredit]) {
+      for (const title of [craneTitle, craneCredit, ...craneEndingTitles]) {
         title.hidden = true;
         title.style.opacity = "";
       }
@@ -884,10 +883,15 @@ async function start() {
       }
       if (shot > 0) {
         craneTitle.hidden = true;
-        craneQuestion.hidden = false;
-        const fadeIn = ease(0.25, 1.05, shot);
-        const fadeOut = ease(3.7, 4.5, shot);
-        craneQuestion.style.opacity = String(fadeIn * (1 - fadeOut));
+        const hold = endingReduced ? 1.9 : 2.55;
+        craneEndingTitles.forEach((title, index) => {
+          const elapsed = shot - 0.25 - index * hold;
+          title.hidden = elapsed < 0 || elapsed >= hold;
+          if (!title.hidden) {
+            title.style.opacity = endingReduced ? "1" :
+              String(ease(0, 0.35, elapsed) * (1 - ease(hold - 0.4, hold, elapsed)));
+          }
+        });
       }
       if (done && revealNews) {
         sound.newspaperFlash();
