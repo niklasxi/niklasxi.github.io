@@ -485,6 +485,8 @@ noscript,
 .about-socials a:hover { text-decoration-color: currentColor; }
 .about-socials a:focus-visible { outline: 2px solid #fff4dc; outline-offset: 4px; }
 .about-socials a span { margin-left: .3em; color: #c9bfa9; font-size: .78em; }
+.about-github-links { display: flex; flex-direction: column; }
+.about-github-links a { min-height: 24px; }
 #about-page form { position: static; margin: 0; }
 @media (max-aspect-ratio: 3/4) {
   #about-page[open] { padding-top: max(5dvh,env(safe-area-inset-top) + 16px); }
