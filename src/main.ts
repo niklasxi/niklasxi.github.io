@@ -57,6 +57,7 @@ const chainTitle = document.querySelector<HTMLHeadingElement>("#chain-title")!;
 const releaseTitle = document.querySelector<HTMLHeadingElement>("#release-title")!;
 const lightTitle = document.querySelector<HTMLElement>("#light-title")!;
 const glideFact = document.querySelector<HTMLElement>("#glide-fact")!;
+const sheetFacts = Array.from(document.querySelectorAll<HTMLElement>("[data-sheet-fact]"));
 const tvFacts = Array.from(document.querySelectorAll<HTMLElement>("[data-tv-fact]"));
 const glideDuration = 7.5;
 const voidTitle = document.querySelector<HTMLElement>("#void-title")!;
@@ -295,6 +296,7 @@ async function start() {
     releaseTitle.style.opacity = "";
     lightTitle.hidden = s !== "last-light";
     tvFacts.forEach((card, i) => { card.hidden = s !== "tv-float" || i !== 0; });
+    sheetFacts.forEach((card, i) => { card.hidden = s !== "sheet" || i !== 0; });
     glideFact.hidden = s !== "flight";
     voidTitle.hidden = true;
     if (s === "end") {
@@ -623,6 +625,8 @@ async function start() {
       title.hidden = true;
     });
     lightTitle.hidden = true;
+    glideFact.hidden = true;
+    sheetFacts.forEach(card => { card.hidden = true; });
     sound.returnToPortfolio();
     sound.cue("paper");
     sound.unfold(returnFold, reduced ? 0.75 : 2.7);
@@ -838,9 +842,10 @@ async function start() {
     }
     if (started) age += dt;
     time += dt * (reduced ? 0.42 : 1);
-    if (stage === "tv-float") {
-      const active = Math.min(tvFacts.length - 1, Math.floor(age / 8));
-      if (tvFacts[active].hidden) tvFacts.forEach((card, i) => { card.hidden = i !== active; });
+    const facts = stage === "sheet" ? sheetFacts : stage === "tv-float" ? tvFacts : undefined;
+    if (facts) {
+      const active = Math.min(facts.length - 1, Math.floor(age / 8));
+      if (facts[active].hidden) facts.forEach((card, i) => { card.hidden = i !== active; });
     }
     if (stage === "flight" && age >= glideDuration) setStage("last-light", reduced ? 2.8 : 4.3);
     if (stage === "last-light" && age >= stageDuration) setStage("blackout", reduced ? 0.65 : 1.15);
