@@ -3,7 +3,7 @@ import { captureMuseumWave } from "./museumWave";
 import { ease } from "./waves";
 
 const clipNames = ["dolphins", "forest", "dance", "hands", "city", "wildlife", "family", "play", "machines", "craft", "festival"];
-const exhibits = [...clipNames, ...[1, 2, 3, 4, 5, 6, 8, 9, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].map(id => "photo-" + String(id).padStart(2, "0"))];
+const exhibits = [...clipNames, ...Array.from({ length: 31 }, (_, i) => "photo-" + String(i + 1).padStart(2, "0")).filter(name => !["photo-07", "photo-10", "photo-27"].includes(name))];
 const base = import.meta.env.BASE_URL + "museum/";
 const radius = 24;
 const rows = 95;
