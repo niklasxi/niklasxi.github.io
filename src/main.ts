@@ -140,9 +140,10 @@ async function start() {
   const pageFacing = new T.Quaternion();
   paper.mesh.layers.enable(1);
   paper.mesh.layers.enable(2);
-  for (const key of ["uTide", "uTime", "uDive", "uSwell", "uClearing"] as const) {
+  for (const key of ["uTide", "uTime", "uDive", "uSwell", "uClearing", "uSkyMotion"] as const) {
     paper.uniforms[key] = env.uniforms[key];
   }
+  paper.uniforms.uSun = env.uniforms.uSun;
   const boatGeometry = paper.mesh.geometry;
   paper.uniforms.uPrint.value = frontPage;
   paper.uniforms.uBackPrint.value = backPage;

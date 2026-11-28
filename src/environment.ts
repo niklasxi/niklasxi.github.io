@@ -47,11 +47,21 @@ vec3 sky(vec3 d) {
 }`;
 
 export const causticsGLSL = `
-    float caustic(vec2 p,float t){
-      vec2 q=p+vec2(sin(p.y*1.7+t*.5)+sin(p.x*1.2-t*.21),
-                    sin(p.x*1.8-t*.35)+cos(p.y*1.7+t*.35))*.24;
-      float k=sin(q.x*3.3+q.y*1.1+t*.21)+sin(q.y*3.14-q.x*1.12-t*.31)+.55*sin(dot(q,vec2(2.7,-3.5))-t*.23);
-      return pow(max(0.,1.-abs(k)*.81),7.);
+    vec2 lightEntry(vec3 point,vec3 sun,float surface){
+      vec3 ray=refract(-sun,vec3(0.,1.,0.),1./1.333);
+      return point.xz-ray.xz*max(surface-point.y,0.)/-ray.y;
+    }
+    float caustic(vec2 entry,float t,float blur){
+      vec2 p=entry*3.7;
+      vec2 q=p+vec2(sin(p.y*1.06+t*.70)+cos(p.x*.89-t*.32),
+                    sin(p.x*1.22-t*.47)+cos(p.y*.83+t*.51))*.49;
+      float a=sin(q.x+q.y*.37+t*.57);
+      float b=sin(q.y-q.x*.41-t*.46);
+      float c=sin(dot(q,vec2(.79,-.97))+t*.31);
+      float width=.54+blur*.8;
+      float folds=exp(-abs(a+b*.83+c*.58)*3.2/width);
+      float crossings=exp(-abs(b+c*.73-a*.42)*4.1/width);
+      return (.74*folds+.26*crossings+.30*folds*crossings)/(1.+blur);
     }
 `;
 
@@ -142,7 +152,7 @@ export function createEnvironment(
     varying vec2 vScreen;
     uniform float uExposure;
     uniform mat4 uCameraWorld,uInvProj,uViewProjection;
-    uniform sampler2D uSand;
+    uniform sampler2D uSand,uRipples;
     uniform vec3 uCamera,uAnchor;
     uniform vec4 uPaperShadow;
     uniform float uTime,uDive,uCut;
@@ -168,19 +178,31 @@ export function createEnvironment(
         vec3 bed=texture2D(uSand,sand*.148).rgb;
         vec3 second=texture2D(uSand,mat2(.8,.6,-.6,.8)*sand*.29+.36).rgb;
         bed=mix(bed,second,.22);
-        float ca=caustic(sand*1.32+fb(sand*.6)*.24,uTime)*.6+caustic(sand*.98+.51,uTime*.8)*.26;
+        vec2 entry=lightEntry(p,uSun,uTide);
+        float blur=smoothstep(8.,27.,dist);
+        float lightingTime=uTime*uSkyMotion;
+        float ca=caustic(entry,lightingTime,blur);
+        float lightPatch=smoothstep(.23,.76,fb(entry*3.8+vec2(lightingTime*.3,0.)));
         float shadow=exp(-dot((sand-uAnchor.xz)/vec2(.88,.52),(sand-uAnchor.xz)/vec2(.88,.52)));
-        vec3 floorColor=bed*vec3(.39,.81,.71)*(1.-.55*shadow);
-        floorColor+=mix(.35,1.,uClearing)*ca*vec3(.16,.26,.20);
+        float daylight=mix(.68,1.,uClearing)*cloudLight();
+        vec3 floorColor=bed*(vec3(.39,.81,.71)+ca*daylight*vec3(.82,1.42,1.25));
+        floorColor+=daylight*(ca*vec3(.03,.15,.13)+lightPatch*vec3(.014,.055,.048));
+        floorColor*=1.-.55*shadow;
         vec2 paperOffset = (sand-uPaperShadow.xy) / vec2(.48,.34);
         floorColor *= 1. - uPaperShadow.z * exp(-dot(paperOffset,paperOffset));
         float fog=exp(-.068*max(0.,dist-3.));
         vec3 deep=mix(vec3(.026,.237,.254),vec3(.055,.436,.423),exp(-line*.73));
         vec3 wet=mix(deep,floorColor,fog);
-        float shaft=pow(fb(vec2(edge.x*1.02-edge.y*.56+uTime*.055,4.37)),2.);
-        wet+=vec3(.085,.17,.133)*shaft*exp(-line*.33);
-        float rim=exp(-abs(line-.023)*38.);
-        wet=mix(wet,vec3(.42,.70,.62),rim*.7);
+        vec3 scatterPoint=mix(edge,p,min(.24,4./max(dist,4.)));
+        vec2 shaftEntry=lightEntry(scatterPoint,uSun,uTide);
+        float shaft=smoothstep(.30,.77,fb(shaftEntry*vec2(4.3,3.)+vec2(lightingTime*.22,4.37)));
+        wet+=vec3(.048,.16,.14)*daylight*shaft*exp(-max(line,0.)*.64);
+        vec2 rippleUV=vec2(edge.x*.36,line*1.6)+vec2(lightingTime*.04,-lightingTime*.034);
+        float rippledLight=texture2D(uRipples,rippleUV).r;
+        float crest=exp(-max(line,0.)*4.6);
+        wet+=vec3(.055,.26,.23)*daylight*crest*mix(.28,1.,rippledLight);
+        float rim=exp(-abs(line-.013)*57.);
+        wet=mix(wet,vec3(.43,.73,.65),rim*(.20+.38*rippledLight));
         wet*=mix(vec3(.70,.79,.85),vec3(1.),uClearing);
         col=mix(col,wet,smoothstep(-.016,.006,line));
       }
@@ -258,6 +280,7 @@ export function createEnvironment(
       vec2 slopes=slopeAt(p.xz+uOceanOrigin,uTime)+fineSlope(p.xz+uOceanOrigin,dist);
       vec3 N=normalize(vec3(-slopes.x,1.,-slopes.y));
       vec3 R=reflect(-V,N); float skyVisible=smoothstep(-.13,.055,R.y); R.y=max(.002,R.y);
+      R=normalize(R);
       float nv=clamp(dot(N,V),0.,1.);
       vec3 mirrorSky=sky(R);
       float fres=(.115+.79*pow(1.-nv,3.45))*mix(.13,1.,skyVisible);
@@ -284,10 +307,10 @@ export function createEnvironment(
         // Transmit the submerged links through the thin strip of surface
         // between the bow and the camera's moving waterline.
         vec4 clip=uViewProjection*vec4(p,1.);
-        vec2 refracted=clip.xy/clip.w*.5+.5+slopes*vec2(.002,.003);
+        vec2 refracted=clip.xy/clip.w*.5+.5+slopes*vec2(.009,.013)*(1.-nv*.45);
         vec4 link=texture2D(uTransmission,refracted);
         vec3 underwaterMetal=pow(max(link.rgb,vec3(0.)),vec3(1./2.2));
-        col=mix(col,underwaterMetal,link.a*uDive*.88);
+        col=mix(col,underwaterMetal,link.a*uDive*(1.-fres)*.84);
       }
       // Foam advects behind the stern and spreads into two turbulent arms.
       vec2 aft=normalize(vec2(.91,.42)); float along=dot(local,aft);
@@ -332,7 +355,7 @@ export function createEnvironment(
         col=mix(col,foamColor,min(whitewater,.82));
       }
       float rim=exp(-vFromCut*24.)*uDive;
-      col=mix(col,vec3(.36,.66,.60),rim*.85);
+      col=mix(col,vec3(.30,.57,.53),rim*(.29+.31*lacy));
       float air=1.-exp(-dist*.0028);
       col=mix(col,sky(vec3(-V.x,.002,-V.z)),clamp(air*.66,0.,1.));
       gl_FragColor=vec4(col*uExposure,1.);

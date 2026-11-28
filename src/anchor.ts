@@ -6,6 +6,8 @@ export interface WaterLight {
   uTime: T.IUniform<number>;
   uSwell: T.IUniform<number>;
   uTide: T.IUniform<number>;
+  uSun: T.IUniform<T.Vector3>;
+  uSkyMotion: T.IUniform<number>;
 }
 
 // Evaluate the same water surface as the hull. The optical path begins at
@@ -19,6 +21,8 @@ export function submerge(material: T.MeshStandardMaterial, water: WaterLight, st
     shader.uniforms.uTime = water.uTime;
     shader.uniforms.uSwell = water.uSwell;
     shader.uniforms.uTide = water.uTide;
+    shader.uniforms.uSun = water.uSun;
+    shader.uniforms.uSkyMotion = water.uSkyMotion;
     shader.vertexShader =
       "varying vec3 vWaterWorld;\n" +
       shader.vertexShader.replace(
@@ -32,7 +36,8 @@ export function submerge(material: T.MeshStandardMaterial, water: WaterLight, st
       );
     shader.fragmentShader =
       `varying vec3 vWaterWorld;
-      uniform float uTime;
+      uniform float uTime,uSkyMotion;
+      uniform vec3 uSun;
       ${waveGLSL}
       ${causticsGLSL}
     ` +
@@ -46,8 +51,8 @@ export function submerge(material: T.MeshStandardMaterial, water: WaterLight, st
       vec3 extinction = exp(-vec3(.21,.082,.063)*path);
       vec3 filtered = outgoingLight * exp(-max(depth,0.)*vec3(.26,.075,.058));
       ${stableLighting ? "" : `
-      vec2 pattern = (vWaterWorld.xz - vec2(.24,-.13)*(vWaterWorld.y+3.65))*1.32;
-      float lightBands = caustic(pattern,uTime);
+      vec2 entry = lightEntry(vWaterWorld,uSun,uTide);
+      float lightBands = caustic(entry,uTime*uSkyMotion,.18);
       filtered *= 1. + lightBands * .68;
       `}
       vec3 scatter = vec3(.004,.084,.087);

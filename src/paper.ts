@@ -44,6 +44,7 @@ function createPaperMaterial(grain: T.Texture) {
     uFold: { value: 0 },
     uAirLight: { value: 0 },
     uDive: { value: 0 }, uTime: { value: 0 }, uSwell: { value: 0 }, uTide: { value: 0 },
+    uSun: { value: new T.Vector3() }, uSkyMotion: { value: 1 },
     uTransmissionPass: { value: false },
   };
   const material = new T.ShaderMaterial({
@@ -53,7 +54,8 @@ function createPaperMaterial(grain: T.Texture) {
     varying vec3 vBary,vWorld,vCurvedNormal; varying vec2 vUv; varying float vSeam;
     void main(){vCurvedNormal=mat3(modelMatrix)*normal;vUv=uv;vSeam=seam;vBary=bary;vec4 p=modelMatrix*vec4(position,1.);vWorld=p.xyz;gl_Position=projectionMatrix*viewMatrix*p;}`,
     fragmentShader: `
-    uniform float uTime,uDive,uClearing;
+    uniform float uTime,uDive,uClearing,uSkyMotion;
+    uniform vec3 uSun;
     uniform bool uTransmissionPass;
     ${waveGLSL}
     ${causticsGLSL}
@@ -95,8 +97,8 @@ function createPaperMaterial(grain: T.Texture) {
         float depth=heightAt(vWorld.xz,uTime)-vWorld.y;
         if(uTransmissionPass && depth<0.) discard;
         float wet=uDive*smoothstep(-.025,.09,depth);
-        float bands=caustic(vWorld.xz*1.7+vWorld.y*.28,uTime);
-        vec3 submerged=color*vec3(.37,.69,.66)+vec3(.04,.15,.14)*bands;
+        float bands=caustic(lightEntry(vWorld,uSun,uTide),uTime*uSkyMotion,.15);
+        vec3 submerged=color*vec3(.37,.69,.66)*(1.+.43*bands)+vec3(.02,.12,.11)*bands;
         color=mix(color,submerged,wet);
       }
       gl_FragColor=vec4(color,1.);

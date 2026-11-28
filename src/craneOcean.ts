@@ -61,6 +61,7 @@ export function createCraneOcean(camera: T.PerspectiveCamera, [sky, storm, rippl
     world.visible=shot>.22;
     camera.updateMatrixWorld();
     un.uTime.value = shot;
+    un.uSkyMotion.value = reduced ? .15 : 1;
     un.uSwell.value = (reduced ? .39 : 1) * (1 - pullback);
     un.uExposure.value = ease(.22, .95, shot);
     un.uAspect.value = camera.aspect;
